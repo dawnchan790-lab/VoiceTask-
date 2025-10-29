@@ -9,10 +9,30 @@ export default defineConfig(({ mode }) => {
       build: {
         outDir: 'dist/static',
         emptyOutDir: false,
+        // 最適化設定
+        minify: 'terser',
+        terserOptions: {
+          compress: {
+            drop_console: true, // 本番環境ではコンソールログを削除
+            drop_debugger: true
+          }
+        },
+        // チャンクサイズ警告の閾値を上げる（Firebase SDKは大きいため）
+        chunkSizeWarningLimit: 1000,
         rollupOptions: {
           input: './src/client-entry.tsx',
           output: {
-            entryFileNames: 'client.js'
+            entryFileNames: 'client.js',
+            // 大きな依存関係を分割
+            manualChunks: {
+              'firebase': [
+                'firebase/app',
+                'firebase/auth',
+                'firebase/firestore',
+                'firebase/messaging'
+              ],
+              'vendor': ['react', 'react-dom']
+            }
           }
         }
       }
@@ -22,7 +42,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [pages()],
     build: {
-      outDir: 'dist'
+      outDir: 'dist',
+      minify: 'terser'
     }
   }
 })

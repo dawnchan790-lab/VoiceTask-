@@ -369,7 +369,7 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
       const dayMap: { [key: string]: number } = {
         '日': 0, '月': 1, '火': 2, '水': 3, '木': 4, '金': 5, '土': 6
       };
-      recurrence.daysOfWeek = [dayMatch[1]];
+      recurrence.daysOfWeek = [dayMap[dayMatch[1]]];
     }
   } else if (/毎月/.test(text)) {
     recurrence = { frequency: 'monthly', interval: 1 };
