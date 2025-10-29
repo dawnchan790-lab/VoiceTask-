@@ -437,20 +437,15 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
           <div className="flex gap-2">
             <button 
               type="button"
-              onClick={(e)=>{ 
-                e.preventDefault();
+              onClick={()=>{ 
                 console.log('➕ 追加ボタンクリック, text:', lastText);
-                if (lastText.trim()) {
-                  onText(lastText.trim()); 
+                const trimmedText = lastText.trim();
+                if (trimmedText) {
+                  console.log('✅ テキストを追加:', trimmedText);
+                  onText(trimmedText); 
                   setLastText(""); 
-                }
-              }}
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                console.log('➕ 追加ボタンタッチ, text:', lastText);
-                if (lastText.trim()) {
-                  onText(lastText.trim()); 
-                  setLastText(""); 
+                } else {
+                  console.warn('⚠️ テキストが空です');
                 }
               }}
               disabled={!lastText.trim()}
@@ -461,7 +456,10 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
             </button>
             <button 
               type="button"
-              onClick={()=>{ setLastText(""); }} 
+              onClick={()=>{ 
+                console.log('🗑️ クリアボタンクリック');
+                setLastText(""); 
+              }} 
               className="min-h-[52px] px-4 py-3 rounded-xl border-2 border-slate-300 font-medium hover:bg-slate-50 active:scale-95 touch-manipulation"
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
