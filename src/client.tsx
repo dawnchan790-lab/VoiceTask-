@@ -124,6 +124,16 @@ interface RecurrenceRule {
 }
 
 /**
+ * カテゴリ
+ */
+interface Category {
+  id: string;
+  name: string;
+  color: string; // Tailwind color class (e.g., "violet", "blue", "green")
+  icon?: string; // Emoji icon
+}
+
+/**
  * @typedef Task
  * @property {string} id
  * @property {string} title
@@ -136,7 +146,101 @@ interface RecurrenceRule {
  * @property {RecurrenceRule?} recurrence // 繰り返しルール（任意）
  * @property {string?} recurrenceId // 繰り返しタスクのグループID
  * @property {string?} originalDate // 元の予定日（編集された場合）
+ * @property {string?} category // カテゴリID
+ * @property {string[]?} tags // タグのリスト
  */
+
+/**
+ * デフォルトカテゴリ
+ */
+const defaultCategories: Category[] = [
+  { id: 'work', name: '仕事', color: 'blue', icon: '💼' },
+  { id: 'personal', name: '個人', color: 'violet', icon: '🏠' },
+  { id: 'health', name: '健康', color: 'green', icon: '💪' },
+  { id: 'study', name: '勉強', color: 'yellow', icon: '📚' },
+  { id: 'meeting', name: '会議', color: 'red', icon: '🤝' },
+  { id: 'hobby', name: '趣味', color: 'pink', icon: '🎨' },
+];
+
+// -----------------------------
+// Japanese Holidays
+// -----------------------------
+/**
+ * 日本の祝日データ（2024-2026年）
+ */
+const japaneseHolidays: { [key: string]: string } = {
+  // 2024年
+  '2024-01-01': '元日',
+  '2024-01-08': '成人の日',
+  '2024-02-11': '建国記念の日',
+  '2024-02-12': '振替休日',
+  '2024-02-23': '天皇誕生日',
+  '2024-03-20': '春分の日',
+  '2024-04-29': '昭和の日',
+  '2024-05-03': '憲法記念日',
+  '2024-05-04': 'みどりの日',
+  '2024-05-05': 'こどもの日',
+  '2024-05-06': '振替休日',
+  '2024-07-15': '海の日',
+  '2024-08-11': '山の日',
+  '2024-08-12': '振替休日',
+  '2024-09-16': '敬老の日',
+  '2024-09-22': '秋分の日',
+  '2024-09-23': '振替休日',
+  '2024-10-14': 'スポーツの日',
+  '2024-11-03': '文化の日',
+  '2024-11-04': '振替休日',
+  '2024-11-23': '勤労感謝の日',
+  
+  // 2025年
+  '2025-01-01': '元日',
+  '2025-01-13': '成人の日',
+  '2025-02-11': '建国記念の日',
+  '2025-02-23': '天皇誕生日',
+  '2025-02-24': '振替休日',
+  '2025-03-20': '春分の日',
+  '2025-04-29': '昭和の日',
+  '2025-05-03': '憲法記念日',
+  '2025-05-04': 'みどりの日',
+  '2025-05-05': 'こどもの日',
+  '2025-05-06': '振替休日',
+  '2025-07-21': '海の日',
+  '2025-08-11': '山の日',
+  '2025-09-15': '敬老の日',
+  '2025-09-23': '秋分の日',
+  '2025-10-13': 'スポーツの日',
+  '2025-11-03': '文化の日',
+  '2025-11-23': '勤労感謝の日',
+  '2025-11-24': '振替休日',
+  
+  // 2026年
+  '2026-01-01': '元日',
+  '2026-01-12': '成人の日',
+  '2026-02-11': '建国記念の日',
+  '2026-02-23': '天皇誕生日',
+  '2026-03-20': '春分の日',
+  '2026-04-29': '昭和の日',
+  '2026-05-03': '憲法記念日',
+  '2026-05-04': 'みどりの日',
+  '2026-05-05': 'こどもの日',
+  '2026-05-06': '振替休日',
+  '2026-07-20': '海の日',
+  '2026-08-11': '山の日',
+  '2026-09-21': '敬老の日',
+  '2026-09-22': '国民の休日',
+  '2026-09-23': '秋分の日',
+  '2026-10-12': 'スポーツの日',
+  '2026-11-03': '文化の日',
+  '2026-11-23': '勤労感謝の日',
+};
+
+/**
+ * 指定した日付が祝日かどうかを判定
+ */
+function isHoliday(date: Date): string | null {
+  const dateStr = format(date, 'yyyy-MM-dd');
+  return japaneseHolidays[dateStr] || null;
+}
 
 // -----------------------------
 // Utilities
@@ -239,6 +343,19 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
   // priority
   let priority = /重要|至急|最優先/.test(text) ? "high" : "normal";
 
+  // カテゴリの解析
+  let category: string | undefined;
+  for (const cat of defaultCategories) {
+    if (text.includes(cat.name) || text.includes(cat.icon)) {
+      category = cat.id;
+      break;
+    }
+  }
+
+  // タグの解析（#で始まる単語）
+  const tagMatches = text.match(/#[^\s#]+/g);
+  const tags = tagMatches ? tagMatches.map(t => t.substring(1)) : [];
+
   // 繰り返しパターンの解析
   let recurrence: RecurrenceRule | undefined;
   
@@ -252,7 +369,7 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
       const dayMap: { [key: string]: number } = {
         '日': 0, '月': 1, '火': 2, '水': 3, '木': 4, '金': 5, '土': 6
       };
-      recurrence.daysOfWeek = [dayMap[dayMatch[1]]];
+      recurrence.daysOfWeek = [dayMatch[1]];
     }
   } else if (/毎月/.test(text)) {
     recurrence = { frequency: 'monthly', interval: 1 };
@@ -269,13 +386,21 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
     recurrence = { frequency: 'weekly', interval: 2 };
   }
 
-  // title cleanup - 日付関連のキーワードと繰り返しキーワードを削除
+  // title cleanup - 日付関連のキーワードと繰り返しキーワード、カテゴリ名、タグを削除
   let title = text
     .replace(/(\d{1,2}:\d{2}|午前|午後|AM|PM|\d+分|\d+時間|重要|至急|最優先)/g, "")
     .replace(/(毎日|毎週|毎月|毎年|隔日|隔週|一日おき)(月|火|水|木|金|土|日)?(曜日?)?/g, "")
     .replace(/毎月\d{1,2}日/g, "")
+    .replace(/#[^\s#]+/g, "") // タグ削除
     .replace(/[\s　]+/g, " ")
     .trim();
+  
+  // カテゴリ名を削除
+  for (const cat of defaultCategories) {
+    title = title.replace(new RegExp(cat.name, 'g'), '').replace(new RegExp(cat.icon, 'g'), '');
+  }
+  
+  title = title.replace(/[\s　]+/g, " ").trim();
   if (!title) title = "ボイスメモ";
 
   const task: any = {
@@ -293,6 +418,16 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
   if (recurrence) {
     task.recurrence = recurrence;
     task.recurrenceId = uuidv4(); // グループID
+  }
+
+  // カテゴリがある場合は追加
+  if (category) {
+    task.category = category;
+  }
+
+  // タグがある場合は追加
+  if (tags.length > 0) {
+    task.tags = tags;
   }
 
   return task;
@@ -698,6 +833,8 @@ function CalendarStrip({ current, onSelectDate, tasks }: { current: Date; onSele
       {days.map((d) => {
         const selected = format(d, "yyyy-MM-dd") === format(current, "yyyy-MM-dd");
         const taskCount = getTaskCount(d);
+        const holidayName = isHoliday(d);
+        const dayOfWeek = d.getDay();
         
         return (
           <button 
@@ -707,14 +844,24 @@ function CalendarStrip({ current, onSelectDate, tasks }: { current: Date; onSele
               "min-w-[80px] sm:min-w-[88px] p-3 sm:p-4 rounded-2xl border text-left snap-center flex-shrink-0 touch-manipulation transition-all",
               selected 
                 ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white border-transparent shadow-lg scale-105" 
-                : "bg-white border-slate-200 hover:border-violet-300 hover:shadow-md active:scale-95"
+                : holidayName
+                  ? "bg-red-50 border-red-200 hover:border-red-300 hover:shadow-md active:scale-95"
+                  : "bg-white border-slate-200 hover:border-violet-300 hover:shadow-md active:scale-95"
             )}
+            title={holidayName || undefined}
           >
-            <div className={classNames("text-xs mb-1", selected ? "opacity-90" : "opacity-60")}>
+            <div className={classNames(
+              "text-xs mb-1",
+              selected ? "opacity-90" : (dayOfWeek === 0 || holidayName) ? "text-red-600" : dayOfWeek === 6 ? "text-blue-600" : "opacity-60"
+            )}>
               {format(d, "M/d", { locale: ja })}
             </div>
-            <div className={classNames("text-xs font-medium mb-0.5", selected ? "opacity-90" : "opacity-60")}>
+            <div className={classNames(
+              "text-xs font-medium mb-0.5",
+              selected ? "opacity-90" : (dayOfWeek === 0 || holidayName) ? "text-red-600" : dayOfWeek === 6 ? "text-blue-600" : "opacity-60"
+            )}>
               {format(d, "EEE", { locale: ja })}
+              {holidayName && !selected && <span className="ml-1 text-red-600">祝</span>}
             </div>
             <div className="text-sm font-semibold">
               {isToday(d) ? "今日" : taskCount > 0 ? `予定 ${taskCount}` : "予定"}
@@ -812,6 +959,7 @@ function MonthCalendar({ currentDate, onSelectDate, tasks }: { currentDate: Date
           const isTodayDate = isToday(day);
           const taskCount = getTaskCount(day);
           const dayOfWeek = day.getDay();
+          const holidayName = isHoliday(day);
           
           return (
             <button
@@ -826,23 +974,31 @@ function MonthCalendar({ currentDate, onSelectDate, tasks }: { currentDate: Date
                   ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white shadow-lg scale-105"
                   : isTodayDate
                     ? "bg-violet-100 border-2 border-violet-500 text-violet-900 font-semibold"
-                    : taskCount > 0
-                      ? "bg-fuchsia-50 border-2 border-fuchsia-200 hover:bg-fuchsia-100"
-                      : "bg-white border border-slate-200 hover:bg-slate-50",
+                    : holidayName
+                      ? "bg-red-50 border-2 border-red-200 hover:bg-red-100"
+                      : taskCount > 0
+                        ? "bg-fuchsia-50 border-2 border-fuchsia-200 hover:bg-fuchsia-100"
+                        : "bg-white border border-slate-200 hover:bg-slate-50",
                 !isCurrentMonth && "opacity-30",
                 "flex flex-col items-center justify-center"
               )}
               style={{ WebkitTapHighlightColor: 'transparent' }}
+              title={holidayName || undefined}
             >
               <div className={classNames(
                 "text-sm font-medium",
                 !isCurrentMonth && "text-slate-400",
                 isSelected && "text-white",
-                !isSelected && dayOfWeek === 0 && "text-red-600",
-                !isSelected && dayOfWeek === 6 && "text-blue-600"
+                !isSelected && (dayOfWeek === 0 || holidayName) && "text-red-600",
+                !isSelected && dayOfWeek === 6 && !holidayName && "text-blue-600"
               )}>
                 {format(day, "d")}
               </div>
+              {holidayName && !isSelected && (
+                <div className="text-[8px] font-semibold mt-0.5 text-red-600 leading-none">
+                  祝
+                </div>
+              )}
               {taskCount > 0 && (
                 <div className={classNames(
                   "text-[10px] font-semibold mt-0.5",
@@ -1252,7 +1408,7 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
               )}
             </div>
             
-            <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
               <span>📅 {format(when, "M/d(EEE) H:mm", { locale: ja })}</span>
               <span>⏱️ {task.durationMin}分</span>
               {task.notify && <span>🔔 通知ON</span>}
@@ -1266,6 +1422,32 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
                   }
                 </span>
               )}
+            </div>
+            
+            {/* カテゴリとタグ */}
+            <div className="text-xs flex flex-wrap items-center gap-2">
+              {task.category && (() => {
+                const cat = defaultCategories.find(c => c.id === task.category);
+                if (!cat) return null;
+                return (
+                  <span className={classNames(
+                    "px-2 py-0.5 rounded-full font-medium",
+                    cat.color === 'blue' && "bg-blue-100 text-blue-700",
+                    cat.color === 'violet' && "bg-violet-100 text-violet-700",
+                    cat.color === 'green' && "bg-green-100 text-green-700",
+                    cat.color === 'yellow' && "bg-yellow-100 text-yellow-700",
+                    cat.color === 'red' && "bg-red-100 text-red-700",
+                    cat.color === 'pink' && "bg-pink-100 text-pink-700"
+                  )}>
+                    {cat.icon} {cat.name}
+                  </span>
+                );
+              })()}
+              {task.tags && task.tags.map((tag: string) => (
+                <span key={tag} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+                  #{tag}
+                </span>
+              ))}
             </div>
           </div>
           
@@ -1336,6 +1518,9 @@ function Dashboard({ user, onLogout }: any) {
   const [fcmToken, setFcmToken] = useState<string | null>(null);
   const [notificationSetupLoading, setNotificationSetupLoading] = useState(false);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+  
+  // カテゴリフィルター
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
 
   // Firestore リアルタイム同期
   useEffect(() => {
@@ -1691,9 +1876,18 @@ function Dashboard({ user, onLogout }: any) {
     }
   }
 
-  const displayTasks = filterTodayOnly 
-    ? todays 
-    : expandedTasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"));
+  const displayTasks = useMemo(() => {
+    let filtered = filterTodayOnly 
+      ? todays 
+      : expandedTasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"));
+    
+    // カテゴリフィルター適用
+    if (categoryFilter) {
+      filtered = filtered.filter((t: any) => t.category === categoryFilter);
+    }
+    
+    return filtered;
+  }, [filterTodayOnly, todays, expandedTasks, currentDate, categoryFilter]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-fuchsia-50 to-cyan-50 pb-safe">
@@ -1943,6 +2137,54 @@ function Dashboard({ user, onLogout }: any) {
                   </div>
                 </div>
 
+                {/* カテゴリフィルター */}
+                <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
+                  <div className="font-semibold mb-3 text-base sm:text-lg flex items-center gap-2">
+                    <span className="text-xl">🏷️</span>
+                    <span>カテゴリ</span>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => setCategoryFilter(null)}
+                      className={classNames(
+                        "w-full p-3 rounded-lg text-left transition touch-manipulation",
+                        !categoryFilter 
+                          ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white" 
+                          : "bg-slate-50 hover:bg-slate-100 active:bg-slate-200"
+                      )}
+                    >
+                      <div className="font-medium text-sm">すべて</div>
+                      <div className="text-xs mt-0.5 opacity-80">
+                        {expandedTasks.length}件
+                      </div>
+                    </button>
+                    
+                    {defaultCategories.map(cat => {
+                      const count = expandedTasks.filter((t: any) => t.category === cat.id).length;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setCategoryFilter(cat.id)}
+                          className={classNames(
+                            "w-full p-3 rounded-lg text-left transition touch-manipulation",
+                            categoryFilter === cat.id
+                              ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white"
+                              : "bg-slate-50 hover:bg-slate-100 active:bg-slate-200"
+                          )}
+                        >
+                          <div className="font-medium text-sm">
+                            {cat.icon} {cat.name}
+                          </div>
+                          <div className="text-xs mt-0.5 opacity-80">
+                            {count}件
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* 通知設定 */}
                 <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
                   <div className="font-semibold mb-3 text-base sm:text-lg flex items-center gap-2">
@@ -2001,15 +2243,23 @@ function Dashboard({ user, onLogout }: any) {
                     </li>
                     <li className="flex gap-2">
                       <span className="flex-shrink-0">•</span>
+                      <span>「仕事」「個人」「健康」などのカテゴリ名を含めると自動分類されます</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex-shrink-0">•</span>
+                      <span>「#プロジェクトA」のように#をつけるとタグが追加されます</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex-shrink-0">•</span>
+                      <span>「毎日」「毎週月曜」など繰り返しパターンを自動認識します</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex-shrink-0">•</span>
                       <span>「重要/至急/最優先」を含むと通知ONになります</span>
                     </li>
                     <li className="flex gap-2">
                       <span className="flex-shrink-0">•</span>
                       <span>通知は開始{defaultLeadMin}分前に届きます</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="flex-shrink-0">•</span>
-                      <span>カレンダーを左右にスワイプして日付を切り替えられます</span>
                     </li>
                   </ul>
                 </div>
