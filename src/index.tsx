@@ -1,15 +1,25 @@
 import { Hono } from 'hono'
-import { renderer } from './renderer'
 
 const app = new Hono()
 
-app.use(renderer)
-
 app.get('/', (c) => {
-  return c.render(
-    <div id="root"></div>,
-    { script: '/static/client.js' }
-  )
+  return c.html(`<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#a855f7" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>VoiceTask - あらゆるデバイスで使えるスケジュール管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="/static/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/static/client.js"></script>
+  </body>
+</html>`)
 })
 
 export default app

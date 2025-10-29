@@ -101,8 +101,26 @@ function parseVoiceTextToTask(text: string) {
   // - Detect priority keywords: "重要", "至急", "最優先"
   // - Detect duration like "30分", "1時間"; default 30m
   // - Title = remaining text after removing parsed parts / keywords
+  
+  // デフォルトは今日の午前9時
+  const defaultDate = new Date();
+  defaultDate.setHours(9, 0, 0, 0);
+  
   const results = chrono.parse(text, new Date(), { forwardDate: true });
-  const refDate = results?.[0]?.start?.date() ?? new Date();
+  let refDate: Date;
+  
+  if (results && results.length > 0 && results[0].start) {
+    refDate = results[0].start.date();
+    
+    // 時刻が指定されていない場合は午前9時に設定
+    const hasTime = results[0].start.get('hour') !== null;
+    if (!hasTime) {
+      refDate.setHours(9, 0, 0, 0);
+    }
+  } else {
+    // 日付解析に失敗した場合は今日の午前9時
+    refDate = defaultDate;
+  }
 
   // duration
   let durationMin = 30;
@@ -482,10 +500,23 @@ function Dashboard({ user, onLogout }: any) {
     return () => tasks.forEach((t: any)=>clearNotification(t.id));
   }, []);
 
-  const todays = useMemo(() => 
-    tasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"))
-    , [tasks, currentDate]
-  );
+  const todays = useMemo(() => {
+    const filtered = tasks.filter((t: any) => {
+      const taskDate = format(parseISO(t.dateISO), "yyyy-MM-dd");
+      const currDate = format(currentDate, "yyyy-MM-dd");
+      return taskDate === currDate;
+    });
+    console.log('📅 今日の予定フィルター:', {
+      currentDate: format(currentDate, "yyyy-MM-dd", { locale: ja }),
+      allTasks: tasks.length,
+      todayTasks: filtered.length,
+      tasks: filtered.map((t: any) => ({
+        title: t.title,
+        date: format(parseISO(t.dateISO), "yyyy-MM-dd HH:mm", { locale: ja })
+      }))
+    });
+    return filtered;
+  }, [tasks, currentDate]);
   
   const upcoming = useMemo(() => tasks
     .filter((t: any) => !t.done && isAfter(new Date(t.dateISO), new Date()))
@@ -495,8 +526,16 @@ function Dashboard({ user, onLogout }: any) {
 
   function addFromText(text: string) {
     const task = parseVoiceTextToTask(text);
+    console.log('📝 新しいタスク作成:', {
+      text,
+      task,
+      dateISO: task.dateISO,
+      date: new Date(task.dateISO),
+      formatted: format(new Date(task.dateISO), "yyyy-MM-dd HH:mm", { locale: ja })
+    });
     setTasks((prev: any) => {
       const next = [task, ...prev];
+      console.log('📋 タスクリスト更新:', next.length, '件');
       // schedule notif for new task
       if (task.notify) scheduleNotification(task);
       return next;
