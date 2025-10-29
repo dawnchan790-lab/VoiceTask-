@@ -1,0 +1,726 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { format, parseISO, startOfToday, isToday, addMinutes, isAfter } from "date-fns";
+import { ja } from "date-fns/locale";
+import * as chrono from "chrono-node";
+import { v4 as uuidv4 } from "uuid";
+
+// =============================
+// VoiceTask: Fully Responsive React App
+// - Mobile-first design (iPhone, iPad, Android, Desktop)
+// - Touch-optimized UI with minimum 44x44px tap targets
+// - Swipe gestures for calendar navigation
+// - PWA-ready with viewport optimization
+// - Safe area support for notched devices
+// =============================
+
+// -----------------------------
+// Types
+// -----------------------------
+/** @typedef {"low" | "normal" | "high"} Priority */
+
+/**
+ * @typedef Task
+ * @property {string} id
+ * @property {string} title
+ * @property {string} note
+ * @property {string} dateISO // Start datetime
+ * @property {number} durationMin
+ * @property {Priority} priority
+ * @property {boolean} done
+ * @property {boolean} notify
+ */
+
+// -----------------------------
+// Utilities
+// -----------------------------
+const KEY = (email: string) => `voicetask_${email}`;
+
+const defaultLeadMin = 10;
+
+function loadTasks(email: string) {
+  try {
+    const raw = localStorage.getItem(KEY(email));
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    console.error(e);
+    return [];
+  }
+}
+
+function saveTasks(email: string, tasks: any[]) {
+  localStorage.setItem(KEY(email), JSON.stringify(tasks));
+}
+
+function classNames(...xs: any[]) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function ensureNotificationPermission() {
+  if (!("Notification" in window)) return Promise.resolve("unsupported");
+  if (Notification.permission === "granted") return Promise.resolve("granted");
+  if (Notification.permission === "denied") return Promise.resolve("denied");
+  return Notification.requestPermission();
+}
+
+// Simple in-tab scheduler (for demo). For production, move to SW.
+const timers = new Map();
+function scheduleNotification(task: any) {
+  if (!task.notify) return;
+  if (!("Notification" in window)) return;
+  const when = new Date(task.dateISO);
+  const fireAt = addMinutes(when, -defaultLeadMin);
+  const delay = fireAt.getTime() - Date.now();
+  if (delay <= 0) return; // already past
+  const t = setTimeout(() => {
+    try {
+      new Notification("VoiceTask 予定リマインド", {
+        body: `${format(when, "M/d H:mm", { locale: ja })} – ${task.title}`,
+        silent: false,
+      });
+    } catch {}
+  }, delay);
+  timers.set(task.id, t);
+}
+
+function clearNotification(taskId: string) {
+  const t = timers.get(taskId);
+  if (t) {
+    clearTimeout(t);
+    timers.delete(taskId);
+  }
+}
+
+// -----------------------------
+// NLP parsing (Japanese-friendly)
+// -----------------------------
+function parseVoiceTextToTask(text: string) {
+  // Heuristics:
+  // - Extract datetime via chrono (ja locale auto-detect)
+  // - Detect priority keywords: "重要", "至急", "最優先"
+  // - Detect duration like "30分", "1時間"; default 30m
+  // - Title = remaining text after removing parsed parts / keywords
+  const results = chrono.parse(text, new Date(), { forwardDate: true });
+  const refDate = results?.[0]?.start?.date() ?? new Date();
+
+  // duration
+  let durationMin = 30;
+  const durMatch = text.match(/(\d+)(分|時間)/);
+  if (durMatch) {
+    const n = parseInt(durMatch[1]);
+    durationMin = durMatch[2] === "時間" ? n * 60 : n;
+  }
+
+  // priority
+  let priority = /重要|至急|最優先/.test(text) ? "high" : "normal";
+
+  // title cleanup
+  let title = text
+    .replace(/(今日|明日|明後日|今週|来週|\d+月\d+日|\d{1,2}:\d{2}|午前|午後|AM|PM|\d+分|\d+時間|重要|至急|最優先)/g, "")
+    .replace(/[\s　]+/g, " ")
+    .trim();
+  if (!title) title = "ボイスメモ";
+
+  return {
+    id: uuidv4(),
+    title,
+    note: text,
+    dateISO: refDate.toISOString(),
+    durationMin,
+    priority,
+    done: false,
+    notify: priority === "high", // high -> notify by default
+  };
+}
+
+// -----------------------------
+// Touch gesture hook for swipe
+// -----------------------------
+function useSwipe(onSwipeLeft?: () => void, onSwipeRight?: () => void) {
+  const touchStart = useRef<number | null>(null);
+  const touchEnd = useRef<number | null>(null);
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchEnd.current = null;
+    touchStart.current = e.targetTouches[0].clientX;
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    touchEnd.current = e.targetTouches[0].clientX;
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStart.current || !touchEnd.current) return;
+    const distance = touchStart.current - touchEnd.current;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+    if (isLeftSwipe && onSwipeLeft) onSwipeLeft();
+    if (isRightSwipe && onSwipeRight) onSwipeRight();
+  };
+
+  return { onTouchStart, onTouchMove, onTouchEnd };
+}
+
+// -----------------------------
+// Components
+// -----------------------------
+function Login({ onLogin }: { onLogin: (user: any) => void }) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  
+  return (
+    <div className="min-h-screen grid place-items-center bg-gradient-to-b from-indigo-50 via-fuchsia-50 to-cyan-50 p-4 sm:p-6">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 sm:p-8">
+        <div className="text-center mb-6">
+          <div className="inline-block w-16 h-16 rounded-3xl bg-gradient-to-br from-fuchsia-600 via-violet-600 to-indigo-600 text-white grid place-items-center font-bold text-2xl shadow-lg mb-4">VT</div>
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">VoiceTask にログイン</h1>
+          <p className="text-slate-600 text-sm">あらゆるデバイスで快適に使える<br />スケジュール管理</p>
+        </div>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">名前（任意）</label>
+            <input 
+              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:border-violet-500 focus:outline-none transition" 
+              value={name} 
+              onChange={(e)=>setName(e.target.value)} 
+              placeholder="山田 太郎" 
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">メールアドレス</label>
+            <input 
+              className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 text-base focus:border-violet-500 focus:outline-none transition" 
+              value={email} 
+              onChange={(e)=>setEmail(e.target.value)} 
+              placeholder="you@example.com"
+              type="email"
+            />
+          </div>
+          
+          <button 
+            onClick={()=> email && onLogin({email, name})} 
+            disabled={!email}
+            className="w-full bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white shadow-lg transition-all hover:shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl py-4 font-semibold text-base touch-manipulation"
+          >
+            入室
+          </button>
+        </div>
+        
+        <p className="text-xs text-slate-500 mt-6 text-center">デモ用: メールだけで入れます。<br />実運用ではFirebase Authなどに置き換えてください。</p>
+      </div>
+    </div>
+  );
+}
+
+function CalendarStrip({ current, onSelectDate }: { current: Date; onSelectDate: (date: Date) => void }) {
+  const days = Array.from({ length: 7 }, (_, i) => new Date(startOfToday().getTime() + i * 24*60*60*1000));
+  
+  const swipeHandlers = useSwipe(
+    () => onSelectDate(new Date(current.getTime() + 24*60*60*1000)),
+    () => onSelectDate(new Date(current.getTime() - 24*60*60*1000))
+  );
+  
+  return (
+    <div 
+      className="flex gap-2 overflow-x-auto pb-3 px-1 snap-x snap-mandatory scrollbar-hide -mx-1"
+      {...swipeHandlers}
+    >
+      {days.map((d) => {
+        const selected = format(d, "yyyy-MM-dd") === format(current, "yyyy-MM-dd");
+        return (
+          <button 
+            key={d.toISOString()} 
+            onClick={()=>onSelectDate(d)} 
+            className={classNames(
+              "min-w-[80px] sm:min-w-[88px] p-3 sm:p-4 rounded-2xl border text-left snap-center flex-shrink-0 touch-manipulation transition-all",
+              selected 
+                ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white border-transparent shadow-lg scale-105" 
+                : "bg-white border-slate-200 hover:border-violet-300 hover:shadow-md active:scale-95"
+            )}
+          >
+            <div className={classNames("text-xs mb-1", selected ? "opacity-90" : "opacity-60")}>
+              {format(d, "M/d", { locale: ja })}
+            </div>
+            <div className={classNames("text-xs font-medium mb-0.5", selected ? "opacity-90" : "opacity-60")}>
+              {format(d, "EEE", { locale: ja })}
+            </div>
+            <div className="text-sm font-semibold">
+              {isToday(d) ? "今日" : "予定"}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function VoiceCapture({ onText }: { onText: (text: string) => void }) {
+  const [recording, setRecording] = useState(false);
+  const recRef = useRef<any>(null);
+  const [supported, setSupported] = useState(false);
+  const [lastText, setLastText] = useState("");
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SR) {
+      setSupported(true);
+      const rec = new SR();
+      rec.lang = "ja-JP";
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+      rec.onresult = (e: any) => {
+        const t = Array.from(e.results)
+          .map((r: any) => r[0]?.transcript)
+          .join(" ");
+        setLastText(t);
+      };
+      rec.onend = () => setRecording(false);
+      recRef.current = rec;
+    }
+  }, []);
+
+  const start = () => {
+    if (!supported) return;
+    setLastText("");
+    setRecording(true);
+    setIsExpanded(true);
+    recRef.current?.start();
+  };
+  
+  const stop = () => recRef.current?.stop();
+
+  return (
+    <div className="bg-white/90 border-2 border-slate-200 rounded-2xl shadow-lg backdrop-blur-sm overflow-hidden">
+      <div 
+        className="p-4 cursor-pointer touch-manipulation"
+        onClick={() => !recording && setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-base flex items-center gap-2">
+              <span className="text-2xl">🎤</span>
+              <span>ボイスメモ</span>
+              {recording && <span className="inline-block w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+            </div>
+            <div className="text-xs text-slate-600 mt-1 truncate">
+              {recording ? "録音中..." : "タップして予定を追加"}
+            </div>
+          </div>
+          {supported && !recording && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); start(); }} 
+              className="flex-shrink-0 w-14 h-14 rounded-full bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white shadow-lg transition-all hover:shadow-xl active:scale-90 touch-manipulation grid place-items-center"
+            >
+              <span className="text-2xl">🎙️</span>
+            </button>
+          )}
+          {recording && (
+            <button 
+              onClick={(e) => { e.stopPropagation(); stop(); }} 
+              className="flex-shrink-0 w-14 h-14 rounded-full bg-red-600 text-white shadow-lg transition-all active:scale-90 touch-manipulation grid place-items-center"
+            >
+              <span className="text-2xl">⏹</span>
+            </button>
+          )}
+        </div>
+      </div>
+      
+      {isExpanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-slate-200 pt-4">
+          <div className="text-xs text-slate-600 bg-slate-50 rounded-lg p-3">
+            💡 例: 「明日10時 重要 顧客に見積提出 30分」
+          </div>
+          
+          <textarea 
+            className="w-full border-2 border-slate-200 rounded-xl p-3 text-base focus:border-violet-500 focus:outline-none transition resize-none" 
+            rows={3} 
+            placeholder="ここにメモを入力（音声が使えない場合）" 
+            value={lastText} 
+            onChange={(e)=>setLastText(e.target.value)} 
+          />
+          
+          <div className="flex gap-2">
+            <button 
+              onClick={()=>{ 
+                if (lastText.trim()) {
+                  onText(lastText.trim()); 
+                  setLastText(""); 
+                  setIsExpanded(false);
+                }
+              }} 
+              disabled={!lastText.trim()}
+              className="flex-1 min-h-[48px] px-4 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white font-medium shadow-lg transition-all hover:shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+            >
+              追加
+            </button>
+            <button 
+              onClick={()=>{ setLastText(""); setIsExpanded(false); }} 
+              className="min-h-[48px] px-4 py-3 rounded-xl border-2 border-slate-300 font-medium hover:bg-slate-50 active:scale-95 touch-manipulation"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
+  const when = new Date(task.dateISO);
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  return (
+    <div className={classNames(
+      "bg-white border-2 rounded-xl shadow-sm overflow-hidden transition-all",
+      task.done ? "opacity-60 border-slate-200" : "border-slate-300",
+      isExpanded ? "shadow-lg" : ""
+    )}>
+      <div 
+        className="p-4 cursor-pointer touch-manipulation"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-start gap-3">
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggle(task.id); }}
+            className="flex-shrink-0 mt-0.5 touch-manipulation"
+          >
+            <div className={classNames(
+              "w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all",
+              task.done 
+                ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 border-transparent" 
+                : "border-slate-400 hover:border-violet-500"
+            )}>
+              {task.done && <span className="text-white text-sm">✓</span>}
+            </div>
+          </button>
+          
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-2 mb-1">
+              <div className={classNames(
+                "font-medium text-base break-words flex-1",
+                task.done && "line-through"
+              )}>
+                {task.title}
+              </div>
+              {task.priority === "high" && (
+                <span className="flex-shrink-0 text-xs px-2 py-1 rounded-full bg-fuchsia-100 text-fuchsia-700 font-medium">
+                  重要
+                </span>
+              )}
+            </div>
+            
+            <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>📅 {format(when, "M/d(EEE) H:mm", { locale: ja })}</span>
+              <span>⏱️ {task.durationMin}分</span>
+              {task.notify && <span>🔔 通知ON</span>}
+            </div>
+          </div>
+          
+          <button 
+            onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+            className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-100 active:bg-slate-200 transition touch-manipulation"
+          >
+            <span className={classNames("transition-transform", isExpanded && "rotate-180")}>
+              ▼
+            </span>
+          </button>
+        </div>
+      </div>
+      
+      {isExpanded && task.note && (
+        <div className="px-4 pb-3">
+          <div className="text-sm text-slate-600 bg-slate-50 rounded-lg p-3 break-words">
+            {task.note}
+          </div>
+        </div>
+      )}
+      
+      {isExpanded && (
+        <div className="px-4 pb-4 flex gap-2 border-t border-slate-200 pt-3">
+          <label className="flex-1 flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-lg border-2 border-slate-300 cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation">
+            <input 
+              type="checkbox" 
+              checked={task.notify} 
+              onChange={()=>onToggleNotify(task.id)} 
+              className="w-5 h-5"
+            />
+            <span className="text-sm font-medium">通知</span>
+          </label>
+          <button 
+            onClick={()=>onDelete(task.id)} 
+            className="flex-shrink-0 min-h-[44px] px-4 py-2 rounded-lg border-2 border-red-300 text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition touch-manipulation"
+          >
+            削除
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Dashboard({ user, onLogout }: any) {
+  const [currentDate, setCurrentDate] = useState(startOfToday());
+  const [tasks, setTasks] = useState(() => loadTasks(user.email));
+  const [filterTodayOnly, setFilterTodayOnly] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(false);
+
+  useEffect(() => { saveTasks(user.email, tasks); }, [tasks, user.email]);
+
+  useEffect(() => {
+    ensureNotificationPermission();
+    // schedule future notifs for existing tasks
+    tasks.forEach((t: any)=>{
+      clearNotification(t.id);
+      if (isAfter(new Date(t.dateISO), new Date())) scheduleNotification(t);
+    });
+    return () => tasks.forEach((t: any)=>clearNotification(t.id));
+  }, []);
+
+  const todays = useMemo(() => 
+    tasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"))
+    , [tasks, currentDate]
+  );
+  
+  const upcoming = useMemo(() => tasks
+    .filter((t: any) => !t.done && isAfter(new Date(t.dateISO), new Date()))
+    .sort((a: any, b: any)=> new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime())
+    .slice(0, 5)
+  , [tasks]);
+
+  function addFromText(text: string) {
+    const task = parseVoiceTextToTask(text);
+    setTasks((prev: any) => {
+      const next = [task, ...prev];
+      // schedule notif for new task
+      if (task.notify) scheduleNotification(task);
+      return next;
+    });
+  }
+
+  function toggleDone(id: string) {
+    setTasks((prev: any) => prev.map((t: any) => t.id === id ? { ...t, done: !t.done } : t));
+  }
+  
+  function toggleNotify(id: string) {
+    setTasks((prev: any) => prev.map((t: any) => {
+      if (t.id !== id) return t;
+      const next = { ...t, notify: !t.notify };
+      clearNotification(t.id);
+      if (next.notify) scheduleNotification(next);
+      return next;
+    }));
+  }
+  
+  function remove(id: string) {
+    clearNotification(id);
+    setTasks((prev: any) => prev.filter((t: any) => t.id !== id));
+  }
+
+  const displayTasks = filterTodayOnly 
+    ? todays 
+    : tasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"));
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-fuchsia-50 to-cyan-50 pb-safe">
+      {/* Header - Sticky with safe area */}
+      <header className="sticky top-0 z-30 backdrop-blur-lg bg-white/80 border-b border-slate-200 shadow-sm pt-safe">
+        <div className="px-4 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-fuchsia-600 via-violet-600 to-indigo-600 text-white grid place-items-center font-bold text-lg sm:text-xl shadow-lg flex-shrink-0">
+                VT
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-base sm:text-lg truncate">VoiceTask</div>
+                <div className="text-xs text-slate-500 truncate">{user.name || user.email}</div>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {/* Mobile: Show sidebar toggle */}
+              <button 
+                onClick={() => setShowSidebar(!showSidebar)}
+                className="lg:hidden min-w-[44px] min-h-[44px] rounded-xl border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation grid place-items-center"
+              >
+                <span className="text-xl">{showSidebar ? '✕' : '☰'}</span>
+              </button>
+              
+              <button 
+                onClick={onLogout} 
+                className="min-w-[44px] min-h-[44px] px-3 sm:px-4 rounded-xl border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition text-sm font-medium touch-manipulation"
+              >
+                <span className="hidden sm:inline">ログアウト</span>
+                <span className="sm:hidden">🚪</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main content area */}
+      <div className="relative">
+        <main className="px-4 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            {/* Left column - Main schedule */}
+            <div className="lg:col-span-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl sm:text-2xl font-bold">マイスケジュール</h2>
+                <div className="text-xs sm:text-sm text-slate-600 font-medium">
+                  {format(currentDate, "M/d(EEE)", { locale: ja })}
+                </div>
+              </div>
+              
+              <CalendarStrip current={currentDate} onSelectDate={setCurrentDate} />
+
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="font-semibold text-base sm:text-lg">
+                  {isToday(currentDate) ? "今日のやること" : format(currentDate, "M/d(EEE) の予定", { locale: ja })}
+                </div>
+                <label className="text-xs sm:text-sm flex items-center gap-2 cursor-pointer touch-manipulation min-h-[44px]">
+                  <input 
+                    type="checkbox" 
+                    checked={filterTodayOnly} 
+                    onChange={()=>setFilterTodayOnly(v=>!v)} 
+                    className="w-4 h-4"
+                  /> 
+                  <span>今日のみ表示</span>
+                </label>
+              </div>
+
+              <div className="space-y-3">
+                {displayTasks
+                  .sort((a: any, b: any)=> new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime())
+                  .map((t: any) => (
+                    <TaskItem 
+                      key={t.id} 
+                      task={t} 
+                      onToggle={toggleDone} 
+                      onDelete={remove} 
+                      onToggleNotify={toggleNotify} 
+                    />
+                  ))}
+                {displayTasks.length === 0 && (
+                  <div className="text-center py-12 bg-white/50 rounded-2xl border-2 border-dashed border-slate-300">
+                    <div className="text-4xl mb-3">📋</div>
+                    <div className="text-slate-600 font-medium">この日に登録されたタスクはありません</div>
+                    <div className="text-xs text-slate-500 mt-2">下のボイスメモから予定を追加しましょう</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6">
+                <VoiceCapture onText={addFromText} />
+              </div>
+            </div>
+
+            {/* Right sidebar - Desktop always visible, Mobile toggle */}
+            <aside className={classNames(
+              "lg:block space-y-4",
+              "lg:relative fixed inset-0 z-40 lg:z-auto",
+              "lg:bg-transparent bg-black/50 lg:backdrop-blur-none backdrop-blur-sm",
+              "lg:p-0 p-4 pt-safe",
+              showSidebar ? "block" : "hidden"
+            )}
+            onClick={() => setShowSidebar(false)}
+            >
+              <div 
+                className="lg:space-y-4 space-y-4 lg:max-w-none max-w-md ml-auto bg-gradient-to-b from-indigo-50 to-fuchsia-50 lg:bg-transparent rounded-2xl lg:rounded-none p-4 lg:p-0 max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Close button for mobile */}
+                <button
+                  onClick={() => setShowSidebar(false)}
+                  className="lg:hidden w-full min-h-[44px] rounded-xl border-2 border-slate-300 bg-white font-medium hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation mb-4"
+                >
+                  閉じる
+                </button>
+                
+                <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
+                  <div className="font-semibold mb-3 text-base sm:text-lg flex items-center gap-2">
+                    <span className="text-xl">⏰</span>
+                    <span>直近の予定</span>
+                  </div>
+                  <div className="space-y-2">
+                    {upcoming.length === 0 && (
+                      <div className="text-sm text-slate-500 text-center py-6">
+                        直近の予定はありません
+                      </div>
+                    )}
+                    {upcoming.map((t: any) => (
+                      <div key={t.id} className="text-sm p-3 rounded-xl border-2 border-slate-200 hover:border-violet-300 transition">
+                        <div className="font-medium mb-1 break-words">{t.title}</div>
+                        <div className="text-xs text-slate-600 flex flex-wrap gap-x-2">
+                          <span>📅 {format(new Date(t.dateISO), "M/d(EEE) H:mm", { locale: ja })}</span>
+                          <span>⏱️ {t.durationMin}分</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
+                  <div className="font-semibold mb-2 text-base sm:text-lg flex items-center gap-2">
+                    <span className="text-xl">💡</span>
+                    <span>ヒント</span>
+                  </div>
+                  <ul className="space-y-2 text-xs sm:text-sm text-slate-600">
+                    <li className="flex gap-2">
+                      <span className="flex-shrink-0">•</span>
+                      <span>「明日10時 重要 顧客に電話 30分」のように話すと自動解析します</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex-shrink-0">•</span>
+                      <span>「重要/至急/最優先」を含むと通知ONになります</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex-shrink-0">•</span>
+                      <span>通知は開始{defaultLeadMin}分前に届きます</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="flex-shrink-0">•</span>
+                      <span>カレンダーを左右にスワイプして日付を切り替えられます</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </main>
+      </div>
+
+      <footer className="text-center text-xs text-slate-500 py-6 mt-8 pb-safe">
+        © {new Date().getFullYear()} VoiceTask - All devices supported
+      </footer>
+      
+      {/* Add custom styles for scrollbar hiding and safe areas */}
+      <style>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        @supports (padding: env(safe-area-inset-top)) {
+          .pt-safe {
+            padding-top: env(safe-area-inset-top);
+          }
+          .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom);
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+export default function App() {
+  const [user, setUser] = useState<any>(null);
+  return user ? <Dashboard user={user} onLogout={()=>setUser(null)} /> : <Login onLogin={setUser} />;
+}
