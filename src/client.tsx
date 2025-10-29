@@ -282,6 +282,16 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
   const [supported, setSupported] = useState(false);
   const [lastText, setLastText] = useState("");
   const [isExpanded, setIsExpanded] = useState(true); // デフォルトで展開
+  
+  // デバッグ: lastTextの変化を監視
+  useEffect(() => {
+    console.log('📝 lastText更新:', {
+      value: lastText,
+      trimmed: lastText.trim(),
+      length: lastText.trim().length,
+      isDisabled: !lastText.trim()
+    });
+  }, [lastText]);
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -438,7 +448,9 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
             <button 
               type="button"
               onClick={()=>{ 
-                console.log('➕ 追加ボタンクリック, text:', lastText);
+                console.log('➕ 追加ボタンクリック');
+                console.log('  - lastText:', lastText);
+                console.log('  - trimmed:', lastText.trim());
                 const trimmedText = lastText.trim();
                 if (trimmedText) {
                   console.log('✅ テキストを追加:', trimmedText);
@@ -448,11 +460,16 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
                   console.warn('⚠️ テキストが空です');
                 }
               }}
-              disabled={!lastText.trim()}
-              className="flex-1 min-h-[52px] px-4 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-lg transition-all hover:shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-base"
+              disabled={lastText.trim().length === 0}
+              className={classNames(
+                "flex-1 min-h-[52px] px-4 py-3 rounded-xl font-semibold shadow-lg transition-all touch-manipulation text-base",
+                lastText.trim().length > 0
+                  ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white hover:shadow-xl active:scale-95 cursor-pointer"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed opacity-50"
+              )}
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              📌 予定を追加
+              📌 予定を追加 {lastText.trim().length > 0 ? '✓' : ''}
             </button>
             <button 
               type="button"

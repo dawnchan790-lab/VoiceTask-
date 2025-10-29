@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VoiceTask - ボタンテスト</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-md mx-auto bg-white rounded-2xl shadow-lg p-6">
+        <h1 class="text-2xl font-bold mb-4">ボタン動作テスト</h1>
+        
+        <textarea 
+            id="testInput"
+            class="w-full border-2 border-slate-200 rounded-xl p-3 text-base mb-4" 
+            rows="4" 
+            placeholder="ここに入力してください"
+        ></textarea>
+        
+        <button 
+            id="addButton"
+            type="button"
+            class="w-full min-h-[52px] px-4 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-lg transition-all hover:shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-base mb-2"
+        >
+            📌 予定を追加
+        </button>
+        
+        <button 
+            id="clearButton"
+            type="button"
+            class="w-full min-h-[52px] px-4 py-3 rounded-xl border-2 border-slate-300 font-medium hover:bg-slate-50 active:scale-95 touch-manipulation"
+        >
+            クリア
+        </button>
+        
+        <div id="log" class="mt-4 p-4 bg-slate-100 rounded-lg text-sm font-mono"></div>
+    </div>
+    
+    <script>
+        const input = document.getElementById('testInput');
+        const addButton = document.getElementById('addButton');
+        const clearButton = document.getElementById('clearButton');
+        const log = document.getElementById('log');
+        
+        function addLog(message) {
+            console.log(message);
+            log.innerHTML += message + '<br>';
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        input.addEventListener('input', () => {
+            const value = input.value;
+            const trimmed = value.trim();
+            addLog(`📝 入力: "${value}" | トリム後: "${trimmed}" | 長さ: ${trimmed.length}`);
+            
+            if (!trimmed) {
+                addButton.disabled = true;
+                addLog('🔒 ボタンを無効化');
+            } else {
+                addButton.disabled = false;
+                addLog('🔓 ボタンを有効化');
+            }
+        });
+        
+        addButton.addEventListener('click', () => {
+            addLog('➕ 追加ボタンクリック!');
+            const value = input.value.trim();
+            if (value) {
+                addLog(`✅ タスク追加: "${value}"`);
+                input.value = '';
+                addButton.disabled = true;
+            }
+        });
+        
+        clearButton.addEventListener('click', () => {
+            addLog('🗑️ クリアボタンクリック!');
+            input.value = '';
+            addButton.disabled = true;
+        });
+        
+        addLog('✨ テストページ起動');
+    </script>
+</body>
+</html>
