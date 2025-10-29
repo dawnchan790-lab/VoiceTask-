@@ -1015,7 +1015,7 @@ function MonthCalendar({ currentDate, onSelectDate, tasks }: { currentDate: Date
   );
 }
 
-function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetDate: Date) => void; selectedDate: Date }) {
+function VoiceCapture({ onText, selectedDate, onDateSelect }: { onText: (text: string, targetDate: Date) => void; selectedDate: Date; onDateSelect: (date: Date) => void }) {
   const [recording, setRecording] = useState(false);
   const recRef = useRef<any>(null);
   const [supported, setSupported] = useState(false);
@@ -2140,7 +2140,7 @@ function Dashboard({ user, onLogout }: any) {
               </div>
 
               <div className="mt-6">
-                <VoiceCapture onText={addFromText} selectedDate={currentDate} />
+                <VoiceCapture onText={addFromText} selectedDate={currentDate} onDateSelect={setCurrentDate} />
               </div>
             </div>
 
