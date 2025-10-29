@@ -1,8 +1,96 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { format, parseISO, startOfToday, isToday, addMinutes, isAfter } from "date-fns";
+import { format, parseISO, startOfToday, isToday, addMinutes, isAfter, addMinutes as add } from "date-fns";
 import { ja } from "date-fns/locale";
 import * as chrono from "chrono-node";
 import { v4 as uuidv4 } from "uuid";
+
+// -----------------------------
+// iCalendar Export Utilities
+// -----------------------------
+function formatICalDate(date: Date): string {
+  // iCalendar形式: YYYYMMDDTHHMMSSZ
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+}
+
+function escapeICalText(text: string): string {
+  // iCalendar形式のテキストエスケープ
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\n/g, '\\n');
+}
+
+function generateICalendar(tasks: any[]): string {
+  const now = new Date();
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//VoiceTask//VoiceTask Calendar Export//JP',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:VoiceTask 予定',
+    'X-WR-TIMEZONE:Asia/Tokyo',
+  ];
+
+  tasks.forEach((task: any) => {
+    const startDate = new Date(task.dateISO);
+    const endDate = addMinutes(startDate, task.durationMin);
+    
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:${task.id}@voicetask.app`);
+    lines.push(`DTSTAMP:${formatICalDate(now)}`);
+    lines.push(`DTSTART:${formatICalDate(startDate)}`);
+    lines.push(`DTEND:${formatICalDate(endDate)}`);
+    lines.push(`SUMMARY:${escapeICalText(task.title)}`);
+    
+    if (task.note) {
+      lines.push(`DESCRIPTION:${escapeICalText(task.note)}`);
+    }
+    
+    if (task.priority === 'high') {
+      lines.push('PRIORITY:1');
+    } else if (task.priority === 'normal') {
+      lines.push('PRIORITY:5');
+    } else {
+      lines.push('PRIORITY:9');
+    }
+    
+    lines.push(`STATUS:${task.done ? 'COMPLETED' : 'CONFIRMED'}`);
+    
+    if (task.notify) {
+      lines.push('BEGIN:VALARM');
+      lines.push('TRIGGER:-PT10M');
+      lines.push('ACTION:DISPLAY');
+      lines.push(`DESCRIPTION:${escapeICalText(task.title)}`);
+      lines.push('END:VALARM');
+    }
+    
+    lines.push('END:VEVENT');
+  });
+
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function downloadICalendar(tasks: any[], filename: string = 'voicetask-calendar.ics') {
+  const icsContent = generateICalendar(tasks);
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 // =============================
 // VoiceTask: Fully Responsive React App
@@ -560,21 +648,32 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
       )}
       
       {isExpanded && (
-        <div className="px-4 pb-4 flex gap-2 border-t border-slate-200 pt-3">
-          <label className="flex-1 flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-lg border-2 border-slate-300 cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation">
-            <input 
-              type="checkbox" 
-              checked={task.notify} 
-              onChange={()=>onToggleNotify(task.id)} 
-              className="w-5 h-5"
-            />
-            <span className="text-sm font-medium">通知</span>
-          </label>
+        <div className="px-4 pb-4 space-y-2 border-t border-slate-200 pt-3">
+          <div className="flex gap-2">
+            <label className="flex-1 flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-lg border-2 border-slate-300 cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation">
+              <input 
+                type="checkbox" 
+                checked={task.notify} 
+                onChange={()=>onToggleNotify(task.id)} 
+                className="w-5 h-5"
+              />
+              <span className="text-sm font-medium">通知</span>
+            </label>
+            <button 
+              onClick={()=>onDelete(task.id)} 
+              className="flex-shrink-0 min-h-[44px] px-4 py-2 rounded-lg border-2 border-red-300 text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition touch-manipulation"
+            >
+              削除
+            </button>
+          </div>
           <button 
-            onClick={()=>onDelete(task.id)} 
-            className="flex-shrink-0 min-h-[44px] px-4 py-2 rounded-lg border-2 border-red-300 text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition touch-manipulation"
+            onClick={() => {
+              downloadICalendar([task], `${task.title.replace(/[^a-zA-Z0-9]/g, '_')}.ics`);
+              alert('この予定をカレンダー形式でエクスポートしました！');
+            }}
+            className="w-full min-h-[44px] px-4 py-2 rounded-lg border-2 border-violet-300 bg-violet-50 text-violet-700 font-medium hover:bg-violet-100 active:bg-violet-200 transition touch-manipulation text-sm"
           >
-            削除
+            📅 この予定をカレンダーにエクスポート
           </button>
         </div>
       )}
@@ -682,6 +781,24 @@ function Dashboard({ user, onLogout }: any) {
             </div>
             
             <div className="flex items-center gap-2">
+              {/* Export to Calendar button */}
+              <button 
+                onClick={() => {
+                  console.log('📤 カレンダーエクスポート, タスク数:', tasks.length);
+                  if (tasks.length === 0) {
+                    alert('エクスポートする予定がありません');
+                    return;
+                  }
+                  downloadICalendar(tasks, `voicetask-${format(new Date(), 'yyyyMMdd')}.ics`);
+                  alert(`${tasks.length}件の予定をエクスポートしました！\n\nダウンロードしたファイルを：\n• Google Calendar: 設定 > インポート\n• Apple Calendar: ファイルをダブルクリック\n• Outlook: ファイル > インポート\nから読み込んでください。`);
+                }}
+                className="min-w-[44px] min-h-[44px] px-3 sm:px-4 rounded-xl border-2 border-violet-300 bg-violet-50 hover:bg-violet-100 active:bg-violet-200 transition text-sm font-medium touch-manipulation"
+                title="カレンダーにエクスポート"
+              >
+                <span className="hidden sm:inline">📅 エクスポート</span>
+                <span className="sm:hidden">📅</span>
+              </button>
+              
               {/* Mobile: Show sidebar toggle */}
               <button 
                 onClick={() => setShowSidebar(!showSidebar)}
