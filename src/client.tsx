@@ -322,13 +322,22 @@ function Login({ onLogin }: { onLogin: (user: any) => void }) {
   );
 }
 
-function CalendarStrip({ current, onSelectDate }: { current: Date; onSelectDate: (date: Date) => void }) {
+function CalendarStrip({ current, onSelectDate, tasks }: { current: Date; onSelectDate: (date: Date) => void; tasks: any[] }) {
   const days = Array.from({ length: 7 }, (_, i) => new Date(startOfToday().getTime() + i * 24*60*60*1000));
   
   const swipeHandlers = useSwipe(
     () => onSelectDate(new Date(current.getTime() + 24*60*60*1000)),
     () => onSelectDate(new Date(current.getTime() - 24*60*60*1000))
   );
+  
+  // 各日付のタスク数を計算
+  const getTaskCount = (date: Date) => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    return tasks.filter((t: any) => {
+      const taskDate = format(parseISO(t.dateISO), "yyyy-MM-dd");
+      return taskDate === dateStr;
+    }).length;
+  };
   
   return (
     <div 
@@ -337,6 +346,8 @@ function CalendarStrip({ current, onSelectDate }: { current: Date; onSelectDate:
     >
       {days.map((d) => {
         const selected = format(d, "yyyy-MM-dd") === format(current, "yyyy-MM-dd");
+        const taskCount = getTaskCount(d);
+        
         return (
           <button 
             key={d.toISOString()} 
@@ -355,7 +366,7 @@ function CalendarStrip({ current, onSelectDate }: { current: Date; onSelectDate:
               {format(d, "EEE", { locale: ja })}
             </div>
             <div className="text-sm font-semibold">
-              {isToday(d) ? "今日" : "予定"}
+              {isToday(d) ? "今日" : taskCount > 0 ? `予定 ${taskCount}` : "予定"}
             </div>
           </button>
         );
@@ -827,7 +838,7 @@ function Dashboard({ user, onLogout }: any) {
                 </div>
               </div>
               
-              <CalendarStrip current={currentDate} onSelectDate={setCurrentDate} />
+              <CalendarStrip current={currentDate} onSelectDate={setCurrentDate} tasks={tasks} />
 
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="font-semibold text-base sm:text-lg">
