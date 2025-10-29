@@ -107,6 +107,23 @@ function downloadICalendar(tasks: any[], filename: string = 'voicetask-calendar.
 /** @typedef {"low" | "normal" | "high"} Priority */
 
 /**
+ * 繰り返しパターンの種類
+ */
+type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+
+/**
+ * 繰り返しルール
+ */
+interface RecurrenceRule {
+  frequency: RecurrenceFrequency;
+  interval: number; // 1 = 毎日/毎週, 2 = 隔日/隔週, etc.
+  daysOfWeek?: number[]; // 0=日曜, 1=月曜, ..., 6=土曜 (weekly用)
+  dayOfMonth?: number; // 1-31 (monthly用)
+  endDate?: string; // ISO format (終了日)
+  count?: number; // 繰り返し回数制限
+}
+
+/**
  * @typedef Task
  * @property {string} id
  * @property {string} title
@@ -116,6 +133,9 @@ function downloadICalendar(tasks: any[], filename: string = 'voicetask-calendar.
  * @property {Priority} priority
  * @property {boolean} done
  * @property {boolean} notify
+ * @property {RecurrenceRule?} recurrence // 繰り返しルール（任意）
+ * @property {string?} recurrenceId // 繰り返しタスクのグループID
+ * @property {string?} originalDate // 元の予定日（編集された場合）
  */
 
 // -----------------------------
@@ -219,14 +239,46 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
   // priority
   let priority = /重要|至急|最優先/.test(text) ? "high" : "normal";
 
-  // title cleanup - 日付関連のキーワードは削除しない（日付は選択済み）
+  // 繰り返しパターンの解析
+  let recurrence: RecurrenceRule | undefined;
+  
+  if (/毎日/.test(text)) {
+    recurrence = { frequency: 'daily', interval: 1 };
+  } else if (/毎週/.test(text)) {
+    recurrence = { frequency: 'weekly', interval: 1 };
+    // 曜日指定の解析
+    const dayMatch = text.match(/毎週(月|火|水|木|金|土|日)(曜日?)?/);
+    if (dayMatch) {
+      const dayMap: { [key: string]: number } = {
+        '日': 0, '月': 1, '火': 2, '水': 3, '木': 4, '金': 5, '土': 6
+      };
+      recurrence.daysOfWeek = [dayMap[dayMatch[1]]];
+    }
+  } else if (/毎月/.test(text)) {
+    recurrence = { frequency: 'monthly', interval: 1 };
+    // 日付指定の解析
+    const dayMatch = text.match(/毎月(\d{1,2})日/);
+    if (dayMatch) {
+      recurrence.dayOfMonth = parseInt(dayMatch[1]);
+    } else {
+      recurrence.dayOfMonth = refDate.getDate();
+    }
+  } else if (/隔日|一日おき/.test(text)) {
+    recurrence = { frequency: 'daily', interval: 2 };
+  } else if (/隔週/.test(text)) {
+    recurrence = { frequency: 'weekly', interval: 2 };
+  }
+
+  // title cleanup - 日付関連のキーワードと繰り返しキーワードを削除
   let title = text
     .replace(/(\d{1,2}:\d{2}|午前|午後|AM|PM|\d+分|\d+時間|重要|至急|最優先)/g, "")
+    .replace(/(毎日|毎週|毎月|毎年|隔日|隔週|一日おき)(月|火|水|木|金|土|日)?(曜日?)?/g, "")
+    .replace(/毎月\d{1,2}日/g, "")
     .replace(/[\s　]+/g, " ")
     .trim();
   if (!title) title = "ボイスメモ";
 
-  return {
+  const task: any = {
     id: uuidv4(),
     title,
     note: text,
@@ -236,6 +288,130 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
     done: false,
     notify: priority === "high", // high -> notify by default
   };
+
+  // 繰り返しルールがある場合は追加
+  if (recurrence) {
+    task.recurrence = recurrence;
+    task.recurrenceId = uuidv4(); // グループID
+  }
+
+  return task;
+}
+
+// -----------------------------
+// Recurrence Task Generation
+// -----------------------------
+/**
+ * 繰り返しタスクのインスタンスを生成
+ * @param baseTask 元となるタスク（recurrenceプロパティを持つ）
+ * @param startDate 生成開始日
+ * @param endDate 生成終了日
+ * @returns 生成されたタスクインスタンスの配列
+ */
+function generateRecurrenceInstances(baseTask: any, startDate: Date, endDate: Date): any[] {
+  if (!baseTask.recurrence) return [];
+
+  const { frequency, interval, daysOfWeek, dayOfMonth, endDate: ruleEndDate, count } = baseTask.recurrence;
+  const instances: any[] = [];
+  
+  const baseDate = new Date(baseTask.dateISO);
+  const baseTime = { hours: baseDate.getHours(), minutes: baseDate.getMinutes() };
+  
+  let currentDate = new Date(startDate);
+  currentDate.setHours(baseTime.hours, baseTime.minutes, 0, 0);
+  
+  const finalEndDate = ruleEndDate ? new Date(ruleEndDate) : endDate;
+  let instanceCount = 0;
+
+  while (currentDate <= finalEndDate && currentDate <= endDate) {
+    // 回数制限チェック
+    if (count && instanceCount >= count) break;
+
+    let shouldGenerate = false;
+
+    if (frequency === 'daily') {
+      shouldGenerate = true;
+    } else if (frequency === 'weekly' && daysOfWeek) {
+      const dayOfWeek = currentDate.getDay();
+      shouldGenerate = daysOfWeek.includes(dayOfWeek);
+    } else if (frequency === 'monthly' && dayOfMonth) {
+      shouldGenerate = currentDate.getDate() === dayOfMonth;
+    }
+
+    if (shouldGenerate && currentDate >= startDate) {
+      instances.push({
+        ...baseTask,
+        id: uuidv4(),
+        dateISO: currentDate.toISOString(),
+        done: false,
+        recurrenceId: baseTask.recurrenceId || baseTask.id,
+        originalDate: currentDate.toISOString()
+      });
+      instanceCount++;
+    }
+
+    // 次の日付に進む
+    if (frequency === 'daily') {
+      currentDate = new Date(currentDate.getTime() + interval * 24 * 60 * 60 * 1000);
+    } else if (frequency === 'weekly') {
+      currentDate = new Date(currentDate.getTime() + interval * 7 * 24 * 60 * 60 * 1000);
+    } else if (frequency === 'monthly') {
+      const nextMonth = currentDate.getMonth() + interval;
+      currentDate = new Date(currentDate.getFullYear(), nextMonth, dayOfMonth || 1, baseTime.hours, baseTime.minutes);
+    } else {
+      break;
+    }
+  }
+
+  return instances;
+}
+
+/**
+ * 既存のタスクリストから繰り返しタスクのベースタスク（マスタータスク）を抽出
+ */
+function getRecurrenceMasters(tasks: any[]): any[] {
+  const masters = new Map<string, any>();
+  
+  tasks.forEach(task => {
+    if (task.recurrence && task.recurrenceId) {
+      // 同じrecurrenceIdを持つタスクのうち、最も古いものをマスターとする
+      const existing = masters.get(task.recurrenceId);
+      if (!existing || new Date(task.dateISO) < new Date(existing.dateISO)) {
+        masters.set(task.recurrenceId, task);
+      }
+    }
+  });
+  
+  return Array.from(masters.values());
+}
+
+/**
+ * 表示範囲の繰り返しタスクを自動生成してタスクリストに追加
+ */
+function expandRecurrenceTasks(tasks: any[], viewStartDate: Date, viewEndDate: Date): any[] {
+  const masters = getRecurrenceMasters(tasks);
+  const existingIds = new Set(tasks.map(t => t.id));
+  const newInstances: any[] = [];
+
+  masters.forEach(master => {
+    const instances = generateRecurrenceInstances(master, viewStartDate, viewEndDate);
+    
+    // 既存のタスクIDと重複しないインスタンスのみ追加
+    instances.forEach(instance => {
+      // 同じ日時・recurrenceIdのタスクが既に存在するかチェック
+      const isDuplicate = tasks.some(t => 
+        t.recurrenceId === instance.recurrenceId &&
+        format(parseISO(t.dateISO), "yyyy-MM-dd HH:mm") === format(parseISO(instance.dateISO), "yyyy-MM-dd HH:mm")
+      );
+      
+      if (!isDuplicate && !existingIds.has(instance.id)) {
+        newInstances.push(instance);
+        existingIds.add(instance.id);
+      }
+    });
+  });
+
+  return [...tasks, ...newInstances];
 }
 
 // -----------------------------
@@ -1080,6 +1256,16 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
               <span>📅 {format(when, "M/d(EEE) H:mm", { locale: ja })}</span>
               <span>⏱️ {task.durationMin}分</span>
               {task.notify && <span>🔔 通知ON</span>}
+              {task.recurrence && (
+                <span className="px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">
+                  🔄 {
+                    task.recurrence.frequency === 'daily' ? '毎日' :
+                    task.recurrence.frequency === 'weekly' ? '毎週' :
+                    task.recurrence.frequency === 'monthly' ? '毎月' :
+                    '繰り返し'
+                  }
+                </span>
+              )}
             </div>
           </div>
           
@@ -1292,29 +1478,39 @@ function Dashboard({ user, onLogout }: any) {
     return () => tasks.forEach((t: any)=>clearNotification(t.id));
   }, []);
 
+  // 繰り返しタスクを展開（表示範囲の3ヶ月分）
+  const expandedTasks = useMemo(() => {
+    const now = new Date();
+    const viewStart = new Date(now.getFullYear(), now.getMonth() - 1, 1); // 先月から
+    const viewEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0); // 再来月末まで
+    
+    return expandRecurrenceTasks(tasks, viewStart, viewEnd);
+  }, [tasks]);
+
   const todays = useMemo(() => {
-    const filtered = tasks.filter((t: any) => {
+    const filtered = expandedTasks.filter((t: any) => {
       const taskDate = format(parseISO(t.dateISO), "yyyy-MM-dd");
       const currDate = format(currentDate, "yyyy-MM-dd");
       return taskDate === currDate;
     });
     console.log('📅 今日の予定フィルター:', {
       currentDate: format(currentDate, "yyyy-MM-dd", { locale: ja }),
-      allTasks: tasks.length,
+      allTasks: expandedTasks.length,
       todayTasks: filtered.length,
       tasks: filtered.map((t: any) => ({
         title: t.title,
-        date: format(parseISO(t.dateISO), "yyyy-MM-dd HH:mm", { locale: ja })
+        date: format(parseISO(t.dateISO), "yyyy-MM-dd HH:mm", { locale: ja }),
+        recurrence: t.recurrence ? `繰り返し: ${t.recurrence.frequency}` : 'なし'
       }))
     });
     return filtered;
-  }, [tasks, currentDate]);
+  }, [expandedTasks, currentDate]);
   
-  const upcoming = useMemo(() => tasks
+  const upcoming = useMemo(() => expandedTasks
     .filter((t: any) => !t.done && isAfter(new Date(t.dateISO), new Date()))
     .sort((a: any, b: any)=> new Date(a.dateISO).getTime() - new Date(b.dateISO).getTime())
     .slice(0, 5)
-  , [tasks]);
+  , [expandedTasks]);
 
   async function addFromText(text: string, targetDate: Date) {
     const task = parseVoiceTextToTask(text, targetDate);
@@ -1497,7 +1693,7 @@ function Dashboard({ user, onLogout }: any) {
 
   const displayTasks = filterTodayOnly 
     ? todays 
-    : tasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"));
+    : expandedTasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"));
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-fuchsia-50 to-cyan-50 pb-safe">
@@ -1656,9 +1852,9 @@ function Dashboard({ user, onLogout }: any) {
               
               {/* カレンダー表示: 週表示/月表示を切り替え */}
               {viewMode === 'week' ? (
-                <CalendarStrip current={currentDate} onSelectDate={setCurrentDate} tasks={tasks} />
+                <CalendarStrip current={currentDate} onSelectDate={setCurrentDate} tasks={expandedTasks} />
               ) : (
-                <MonthCalendar currentDate={currentDate} onSelectDate={setCurrentDate} tasks={tasks} />
+                <MonthCalendar currentDate={currentDate} onSelectDate={setCurrentDate} tasks={expandedTasks} />
               )}
 
               <div className="flex items-center justify-between flex-wrap gap-2">
