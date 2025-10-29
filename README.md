@@ -1,21 +1,167 @@
-```txt
+# VoiceTask
+
+## 📱 プロジェクト概要
+**VoiceTask**は、音声入力で簡単にスケジュールを管理できる、あらゆるデバイス（スマホ・タブレット・PC）に対応したレスポンシブWebアプリケーションです。
+
+### 🎯 主な特徴
+- **音声入力対応**: 「明日10時 重要 顧客に電話 30分」と話すだけで自動的にタスクを作成
+- **日本語自然言語解析**: chrono-nodeを使用した高精度な日時解析
+- **レスポンシブデザイン**: iPhone、iPad、Android、デスクトップすべてで快適に動作
+- **タッチ最適化**: 最小44x44pxのタップターゲット、スワイプジェスチャー対応
+- **通知機能**: 重要なタスクは開始10分前にブラウザ通知
+- **PWA対応**: ホーム画面に追加してアプリのように使用可能
+
+## 🌐 公開URL
+
+### サンドボックス環境（開発用）
+- **URL**: https://3000-iaucei33hu14f8a45otlh-3844e1b6.sandbox.novita.ai
+- **用途**: 開発・テスト環境
+- **有効期限**: セッション終了まで
+
+### Cloudflare Pages（本番環境）
+- **デプロイ方法**: `npm run deploy:prod`
+- **プロジェクト名**: voicetask
+- **本番URL**: デプロイ後に表示されます
+
+## 🛠️ 技術スタック
+
+### フロントエンド
+- **React 19**: UIフレームワーク
+- **TypeScript**: 型安全性
+- **TailwindCSS**: ユーティリティファーストCSS（CDN版）
+- **date-fns**: 日付操作ライブラリ
+- **chrono-node**: 自然言語日時解析
+- **uuid**: 一意ID生成
+
+### バックエンド
+- **Hono**: 軽量高速Webフレームワーク
+- **Cloudflare Pages**: エッジデプロイプラットフォーム
+- **Wrangler**: Cloudflare開発ツール
+
+### ビルド・開発ツール
+- **Vite**: 高速ビルドツール
+- **PM2**: プロセス管理（開発環境）
+
+## 📦 データ構造
+
+### Task型
+```typescript
+{
+  id: string,           // UUID
+  title: string,        // タスク名
+  note: string,         // 元の音声テキスト
+  dateISO: string,      // 開始日時（ISO 8601形式）
+  durationMin: number,  // 所要時間（分）
+  priority: "low" | "normal" | "high",
+  done: boolean,        // 完了フラグ
+  notify: boolean       // 通知フラグ
+}
+```
+
+### ストレージ
+- **LocalStorage**: ユーザーごとのタスクデータを保存
+- **キー形式**: `voicetask_{email}`
+- **通知スケジューラー**: タイマーベース（デモ用、本番ではService Worker推奨）
+
+## 🚀 使い方
+
+### 開発環境での起動
+```bash
+# 依存関係のインストール
 npm install
-npm run dev
+
+# ビルド
+npm run build
+
+# 開発サーバー起動（PM2）
+pm2 start ecosystem.config.cjs
+
+# サービス確認
+npm test
 ```
 
-```txt
-npm run deploy
-```
+### ユーザー操作
+1. **ログイン**: メールアドレスを入力（デモ用、認証なし）
+2. **タスク追加**: ボイスメモエリアをタップして音声入力または手入力
+3. **日付切替**: カレンダーストリップをタップまたはスワイプ
+4. **タスク管理**: チェックボックスで完了、展開して詳細表示・削除
+5. **通知設定**: 重要タスクは自動で通知ON、手動でも切替可能
 
-[For generating/synchronizing types based on your Worker configuration run](https://developers.cloudflare.com/workers/wrangler/commands/#types):
+### 音声入力の例
+- 「明日10時 重要 顧客に見積提出 30分」
+- 「今週金曜日 午後3時 会議 1時間」
+- 「明後日 至急 書類提出」
 
-```txt
-npm run cf-typegen
-```
+## 🎨 レスポンシブ対応
 
-Pass the `CloudflareBindings` as generics when instantiation `Hono`:
+### スマートフォン（〜768px）
+- 縦1カラムレイアウト
+- サイドバーはモーダル表示
+- タッチ最適化UI（最小44x44px）
+- スワイプジェスチャーでカレンダー操作
 
-```ts
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>()
-```
+### タブレット（768px〜1024px）
+- 縦1カラムレイアウト（スマホと同様）
+- より大きなタップターゲット
+
+### デスクトップ（1024px〜）
+- 2カラムレイアウト（メイン + サイドバー）
+- サイドバー常時表示
+- ホバーエフェクト
+
+### Safe Area対応
+- iPhone X以降のノッチ・ホームインジケーターに対応
+- `env(safe-area-inset-*)` を使用した余白調整
+
+## 📝 実装済み機能
+
+✅ メールベースのログイン（デモ用）  
+✅ 音声認識（Web Speech API、日本語対応）  
+✅ 自然言語日時解析（chrono-node）  
+✅ タスクのCRUD操作  
+✅ 完了/未完了切替  
+✅ 通知ON/OFF切替  
+✅ カレンダービュー（7日間表示）  
+✅ スワイプジェスチャー  
+✅ レスポンシブデザイン  
+✅ ブラウザ通知（10分前）  
+✅ LocalStorageによるデータ永続化  
+✅ アコーディオンUI（展開/折りたたみ）  
+
+## 🔜 未実装機能（今後の拡張）
+
+⏳ Firebase Authによる本格的な認証  
+⏳ Firestore/Supabaseによるクラウド同期  
+⏳ Service Workerによるオフライン対応  
+⏳ プッシュ通知（バックグラウンド通知）  
+⏳ タスクの編集機能  
+⏳ カテゴリ・タグ機能  
+⏳ 定期タスク（リピート）  
+⏳ カレンダーエクスポート（iCal形式）  
+⏳ 音声合成による読み上げ  
+⏳ ダークモード  
+
+## 🔧 推奨される次のステップ
+
+1. **認証の実装**: Firebase Auth または Supabase Auth に切り替え
+2. **データベース移行**: LocalStorage → Firestore/Supabase に移行
+3. **Service Worker追加**: オフライン対応とプッシュ通知
+4. **タスク編集機能**: 既存タスクの修正・更新
+5. **カテゴリ分類**: プロジェクトやタグでタスクを整理
+6. **共有機能**: チームでスケジュールを共有
+7. **統計ダッシュボード**: 完了率、作業時間の可視化
+
+## 📄 デプロイステータス
+
+- **プラットフォーム**: Cloudflare Pages
+- **ステータス**: 🟡 デプロイ準備完了（Cloudflare API Key設定後にデプロイ可能）
+- **技術スタック**: Hono + React + TypeScript + TailwindCSS
+- **最終更新**: 2025年10月29日
+
+## 📞 サポート
+
+問題や質問がある場合は、GitHubのIssuesで報告してください。
+
+---
+
+© 2025 VoiceTask - All devices supported 🌍📱💻
