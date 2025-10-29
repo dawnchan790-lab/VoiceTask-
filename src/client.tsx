@@ -426,10 +426,10 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
     }
   }, []);
 
-  const start = () => {
-    console.log('🔘 開始ボタンクリック');
+  const handleStartRecording = () => {
+    console.log('🔘 録音開始処理');
     if (!supported) {
-      console.warn('⚠️ 音声認識非対応のため開始できません');
+      console.warn('⚠️ 音声認識非対応');
       alert('このブラウザは音声認識に対応していません。手入力をご利用ください。');
       setIsExpanded(true);
       return;
@@ -438,7 +438,7 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
     setRecording(true);
     setIsExpanded(true);
     try {
-      console.log('▶️ 音声認識を開始します...');
+      console.log('▶️ 音声認識を開始');
       recRef.current?.start();
     } catch (error) {
       console.error('❌ 音声認識開始エラー:', error);
@@ -447,11 +447,11 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
     }
   };
   
-  const stop = () => {
-    console.log('⏹️ 停止ボタンクリック');
+  const handleStopRecording = () => {
+    console.log('⏹️ 録音停止処理');
     try {
       recRef.current?.stop();
-      console.log('✅ 音声認識を停止しました');
+      console.log('✅ 音声認識を停止');
     } catch (error) {
       console.error('❌ 音声認識停止エラー:', error);
     } finally {
@@ -473,49 +473,44 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
               {recording ? "🎙️ 録音中..." : supported ? "音声入力または手入力で予定を追加" : "手入力で予定を追加"}
             </div>
           </div>
+          
+          {/* Simplified Recording Button - iOS Compatible */}
           {supported && !recording && (
-            <button 
-              type="button"
-              onClick={(e) => { 
-                e.stopPropagation();
-                e.preventDefault();
-                start(); 
+            <div 
+              onClick={handleStartRecording}
+              className="flex-shrink-0 w-20 h-20 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-500 shadow-2xl cursor-pointer select-none"
+              style={{ 
+                WebkitTapHighlightColor: 'rgba(0,0,0,0)',
+                touchAction: 'manipulation',
+                userSelect: 'none',
+                WebkitUserSelect: 'none'
               }}
-              onTouchStart={(e) => {
-                e.stopPropagation();
-              }}
-              onTouchEnd={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                start();
-              }}
-              className="flex-shrink-0 w-16 h-16 rounded-full bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white shadow-lg transition-all hover:shadow-xl active:scale-90 touch-manipulation grid place-items-center"
-              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              <span className="text-2xl">🎙️</span>
-            </button>
+              <div className="w-full h-full rounded-full flex items-center justify-center active:scale-95 transition-transform">
+                <svg className="w-10 h-10 text-white" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                </svg>
+              </div>
+            </div>
           )}
+          
+          {/* Stop Recording Button */}
           {recording && (
-            <button 
-              type="button"
-              onClick={(e) => { 
-                e.stopPropagation(); 
-                e.preventDefault();
-                stop(); 
+            <div 
+              onClick={handleStopRecording}
+              className="flex-shrink-0 w-20 h-20 rounded-full bg-red-500 shadow-2xl cursor-pointer select-none animate-pulse"
+              style={{ 
+                WebkitTapHighlightColor: 'rgba(0,0,0,0)',
+                touchAction: 'manipulation',
+                userSelect: 'none',
+                WebkitUserSelect: 'none'
               }}
-              onTouchStart={(e) => {
-                e.stopPropagation();
-              }}
-              onTouchEnd={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                stop();
-              }}
-              className="flex-shrink-0 w-16 h-16 rounded-full bg-red-600 text-white shadow-lg transition-all active:scale-90 touch-manipulation grid place-items-center animate-pulse"
-              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              <span className="text-2xl">⏹</span>
-            </button>
+              <div className="w-full h-full rounded-full flex items-center justify-center active:scale-95 transition-transform">
+                <div className="w-8 h-8 bg-white rounded-md"></div>
+              </div>
+            </div>
           )}
         </div>
       
