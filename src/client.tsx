@@ -1138,12 +1138,82 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
 
 function Dashboard({ user, onLogout }: any) {
   const [currentDate, setCurrentDate] = useState(startOfToday());
-  const [tasks, setTasks] = useState(() => loadTasks(user.email));
+  const [tasks, setTasks] = useState<any[]>([]);
   const [filterTodayOnly, setFilterTodayOnly] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week'); // カレンダー表示モード
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  useEffect(() => { saveTasks(user.email, tasks); }, [tasks, user.email]);
+  // Firestore リアルタイム同期
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    
+    const setupFirestoreSync = async () => {
+      // userにuidがあるかチェック（Firebase認証済みの場合）
+      if (!user.uid) {
+        console.warn('⚠️ Firebase未認証、LocalStorageを使用');
+        setTasks(loadTasks(user.email));
+        setTasksLoading(false);
+        return;
+      }
+
+      try {
+        const { firebaseDb } = await import('./lib/firebase');
+        
+        console.log('🔄 Firestoreリアルタイム同期開始:', user.uid);
+        
+        // リアルタイム同期のセットアップ
+        unsubscribe = firebaseDb.tasks.subscribe(user.uid, (updatedTasks) => {
+          console.log('📥 Firestoreからタスク受信:', updatedTasks.length, '件');
+          setTasks(updatedTasks);
+          setTasksLoading(false);
+          setSyncError(null);
+        });
+
+        // 初回読み込み時にLocalStorageデータを移行
+        const localTasks = loadTasks(user.email);
+        if (localTasks.length > 0) {
+          console.log('📤 LocalStorageデータをFirestoreに移行:', localTasks.length, '件');
+          
+          // 既存のFirestoreデータを確認
+          const firestoreTasks = await firebaseDb.tasks.getAll(user.uid);
+          
+          if (firestoreTasks.length === 0) {
+            // Firestoreが空の場合のみ移行
+            for (const task of localTasks) {
+              await firebaseDb.tasks.add(user.uid, task);
+            }
+            console.log('✅ LocalStorageデータ移行完了');
+            
+            // 移行後はLocalStorageをクリア
+            localStorage.removeItem(KEY(user.email));
+          }
+        }
+      } catch (error) {
+        console.error('❌ Firestore同期エラー:', error);
+        setSyncError('データの同期に失敗しました。ローカルモードで動作します。');
+        setTasks(loadTasks(user.email));
+        setTasksLoading(false);
+      }
+    };
+
+    setupFirestoreSync();
+
+    return () => {
+      if (unsubscribe) {
+        console.log('🔌 Firestore同期解除');
+        unsubscribe();
+      }
+    };
+  }, [user.uid, user.email]);
+
+  // LocalStorageへの保存（Firestore非対応時のフォールバック）
+  useEffect(() => {
+    if (!user.uid) {
+      saveTasks(user.email, tasks);
+    }
+  }, [tasks, user.email, user.uid]);
 
   useEffect(() => {
     ensureNotificationPermission();
@@ -1179,7 +1249,7 @@ function Dashboard({ user, onLogout }: any) {
     .slice(0, 5)
   , [tasks]);
 
-  function addFromText(text: string, targetDate: Date) {
+  async function addFromText(text: string, targetDate: Date) {
     const task = parseVoiceTextToTask(text, targetDate);
     console.log('📝 新しいタスク作成:', {
       text,
@@ -1189,32 +1259,115 @@ function Dashboard({ user, onLogout }: any) {
       date: new Date(task.dateISO),
       formatted: format(new Date(task.dateISO), "yyyy-MM-dd HH:mm", { locale: ja })
     });
-    setTasks((prev: any) => {
-      const next = [task, ...prev];
-      console.log('📋 タスクリスト更新:', next.length, '件');
-      // schedule notif for new task
-      if (task.notify) scheduleNotification(task);
-      return next;
-    });
+
+    // Firestore対応チェック
+    if (user.uid) {
+      try {
+        const { firebaseDb } = await import('./lib/firebase');
+        await firebaseDb.tasks.add(user.uid, task);
+        console.log('✅ タスクをFirestoreに追加:', task.id);
+        
+        // schedule notif for new task
+        if (task.notify) scheduleNotification(task);
+        
+        // リアルタイム同期で自動更新されるため、setTasksは不要
+      } catch (error) {
+        console.error('❌ Firestoreへの追加エラー:', error);
+        // フォールバック: ローカルで追加
+        setTasks((prev: any) => {
+          const next = [task, ...prev];
+          if (task.notify) scheduleNotification(task);
+          return next;
+        });
+      }
+    } else {
+      // LocalStorage mode
+      setTasks((prev: any) => {
+        const next = [task, ...prev];
+        console.log('📋 タスクリスト更新:', next.length, '件');
+        if (task.notify) scheduleNotification(task);
+        return next;
+      });
+    }
   }
 
-  function toggleDone(id: string) {
-    setTasks((prev: any) => prev.map((t: any) => t.id === id ? { ...t, done: !t.done } : t));
+  async function toggleDone(id: string) {
+    const task = tasks.find((t: any) => t.id === id);
+    if (!task) return;
+
+    const newDoneState = !task.done;
+
+    if (user.uid) {
+      try {
+        const { firebaseDb } = await import('./lib/firebase');
+        await firebaseDb.tasks.update(id, { done: newDoneState });
+        console.log('✅ タスク完了状態をFirestoreで更新:', id, newDoneState);
+      } catch (error) {
+        console.error('❌ Firestore更新エラー:', error);
+        // フォールバック: ローカルで更新
+        setTasks((prev: any) => prev.map((t: any) => t.id === id ? { ...t, done: newDoneState } : t));
+      }
+    } else {
+      // LocalStorage mode
+      setTasks((prev: any) => prev.map((t: any) => t.id === id ? { ...t, done: newDoneState } : t));
+    }
   }
   
-  function toggleNotify(id: string) {
-    setTasks((prev: any) => prev.map((t: any) => {
-      if (t.id !== id) return t;
-      const next = { ...t, notify: !t.notify };
-      clearNotification(t.id);
-      if (next.notify) scheduleNotification(next);
-      return next;
-    }));
-  }
-  
-  function remove(id: string) {
+  async function toggleNotify(id: string) {
+    const task = tasks.find((t: any) => t.id === id);
+    if (!task) return;
+
+    const newNotifyState = !task.notify;
     clearNotification(id);
-    setTasks((prev: any) => prev.filter((t: any) => t.id !== id));
+
+    if (user.uid) {
+      try {
+        const { firebaseDb } = await import('./lib/firebase');
+        await firebaseDb.tasks.update(id, { notify: newNotifyState });
+        console.log('✅ タスク通知状態をFirestoreで更新:', id, newNotifyState);
+        
+        if (newNotifyState) {
+          const updatedTask = { ...task, notify: newNotifyState };
+          scheduleNotification(updatedTask);
+        }
+      } catch (error) {
+        console.error('❌ Firestore更新エラー:', error);
+        // フォールバック: ローカルで更新
+        setTasks((prev: any) => prev.map((t: any) => {
+          if (t.id !== id) return t;
+          const next = { ...t, notify: newNotifyState };
+          if (next.notify) scheduleNotification(next);
+          return next;
+        }));
+      }
+    } else {
+      // LocalStorage mode
+      setTasks((prev: any) => prev.map((t: any) => {
+        if (t.id !== id) return t;
+        const next = { ...t, notify: newNotifyState };
+        if (next.notify) scheduleNotification(next);
+        return next;
+      }));
+    }
+  }
+  
+  async function remove(id: string) {
+    clearNotification(id);
+
+    if (user.uid) {
+      try {
+        const { firebaseDb } = await import('./lib/firebase');
+        await firebaseDb.tasks.delete(id);
+        console.log('✅ タスクをFirestoreから削除:', id);
+      } catch (error) {
+        console.error('❌ Firestore削除エラー:', error);
+        // フォールバック: ローカルで削除
+        setTasks((prev: any) => prev.filter((t: any) => t.id !== id));
+      }
+    } else {
+      // LocalStorage mode
+      setTasks((prev: any) => prev.filter((t: any) => t.id !== id));
+    }
   }
 
   const displayTasks = filterTodayOnly 
@@ -1233,7 +1386,17 @@ function Dashboard({ user, onLogout }: any) {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-base sm:text-lg truncate">VoiceTask</div>
-                <div className="text-xs text-slate-500 truncate">{user.name || user.email}</div>
+                <div className="text-xs text-slate-500 truncate">
+                  {user.name || user.email}
+                  {user.uid && (
+                    <span className="ml-2 text-emerald-600">
+                      {tasksLoading ? '🔄 同期中...' : '☁️ クラウド同期'}
+                    </span>
+                  )}
+                  {!user.uid && (
+                    <span className="ml-2 text-amber-600">💾 ローカル保存</span>
+                  )}
+                </div>
               </div>
             </div>
             
@@ -1279,6 +1442,21 @@ function Dashboard({ user, onLogout }: any) {
       {/* Main content area */}
       <div className="relative">
         <main className="px-4 sm:px-6 py-4 sm:py-6 max-w-7xl mx-auto">
+          {/* Sync Error Message */}
+          {syncError && (
+            <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-300 rounded-xl">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">⚠️</span>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-900">{syncError}</p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    データはこのデバイスに保存されます。オンラインに復帰すると自動で同期されます。
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* Left column - Main schedule */}
             <div className="lg:col-span-2 space-y-4">
@@ -1470,5 +1648,69 @@ function Dashboard({ user, onLogout }: any) {
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
-  return user ? <Dashboard user={user} onLogout={()=>setUser(null)} /> : <Login onLogin={setUser} />;
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Firebase認証状態の監視
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    
+    const setupAuthListener = async () => {
+      try {
+        const { firebaseAuth } = await import('./lib/firebase');
+        
+        unsubscribe = firebaseAuth.onAuthStateChanged((firebaseUser) => {
+          console.log('🔐 Firebase認証状態変更:', firebaseUser ? `ログイン中 (${firebaseUser.email})` : 'ログアウト');
+          
+          if (firebaseUser) {
+            // Firebase認証済みユーザー
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'ユーザー'
+            });
+          } else {
+            // ログアウト状態
+            setUser(null);
+          }
+          setAuthLoading(false);
+        });
+      } catch (error) {
+        console.warn('⚠️ Firebase初期化失敗、デモモードで継続:', error);
+        setAuthLoading(false);
+      }
+    };
+
+    setupAuthListener();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // ログアウト処理
+  const handleLogout = async () => {
+    try {
+      const { firebaseAuth } = await import('./lib/firebase');
+      await firebaseAuth.signOut();
+      console.log('✅ ログアウト完了');
+    } catch (error) {
+      console.error('❌ ログアウトエラー:', error);
+      // デモモードの場合はローカルで処理
+      setUser(null);
+    }
+  };
+
+  // ローディング中
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-violet-50 via-fuchsia-50 to-cyan-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-slate-600 font-medium">読み込み中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return user ? <Dashboard user={user} onLogout={handleLogout} /> : <Login onLogin={setUser} />;
 }

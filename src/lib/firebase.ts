@@ -27,7 +27,8 @@ import {
   onSnapshot,
   deleteDoc,
   updateDoc,
-  Timestamp
+  Timestamp,
+  enableIndexedDbPersistence
 } from 'firebase/firestore';
 
 // Firebase configuration
@@ -51,6 +52,22 @@ try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  
+  // Enable offline persistence
+  enableIndexedDbPersistence(db)
+    .then(() => {
+      console.log('💾 Firestore offline persistence enabled');
+    })
+    .catch((err) => {
+      if (err.code === 'failed-precondition') {
+        console.warn('⚠️ Multiple tabs open, persistence can only be enabled in one tab at a time.');
+      } else if (err.code === 'unimplemented') {
+        console.warn('⚠️ Current browser does not support offline persistence.');
+      } else {
+        console.warn('⚠️ Firestore persistence error:', err);
+      }
+    });
+  
   console.log('🔥 Firebase initialized successfully');
 } catch (error) {
   console.error('❌ Firebase initialization error:', error);
