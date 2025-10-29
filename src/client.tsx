@@ -1416,7 +1416,7 @@ function VoiceCapture({ onText, selectedDate, onDateSelect }: { onText: (text: s
   );
 }
 
-function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
+function TaskItem({ task, onToggle, onDelete, onToggleNotify, onUpdate }: any) {
   const when = new Date(task.dateISO);
   const [isExpanded, setIsExpanded] = useState(false);
   
@@ -1523,33 +1523,149 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify }: any) {
       )}
       
       {isExpanded && (
-        <div className="px-4 pb-4 space-y-2 border-t border-slate-200 pt-3">
-          <div className="flex gap-2">
-            <label className="flex-1 flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-lg border-2 border-slate-300 cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation">
+        <div className="px-4 pb-4 space-y-3 border-t border-slate-200 pt-3">
+          {/* リマインダー設定 */}
+          <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+            <div className="text-sm font-semibold text-slate-700 mb-2">🔔 リマインダー</div>
+            <label className="flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-lg border-2 border-slate-300 bg-white cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation">
               <input 
                 type="checkbox" 
                 checked={task.notify} 
                 onChange={()=>onToggleNotify(task.id)} 
                 className="w-5 h-5"
               />
-              <span className="text-sm font-medium">通知</span>
+              <span className="text-sm font-medium">通知を有効にする</span>
             </label>
+            {task.notify && (
+              <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-2">
+                💡 タスク開始時刻の10分前に通知されます
+              </div>
+            )}
+          </div>
+
+          {/* 繰り返し設定 */}
+          <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+            <div className="text-sm font-semibold text-slate-700 mb-2">🔄 繰り返し</div>
+            {task.recurrence ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between bg-violet-50 border-2 border-violet-300 rounded-lg p-3">
+                  <div className="text-sm">
+                    <div className="font-medium text-violet-700">
+                      {task.recurrence.frequency === 'daily' && `${task.recurrence.interval}日ごと`}
+                      {task.recurrence.frequency === 'weekly' && (
+                        task.recurrence.daysOfWeek && task.recurrence.daysOfWeek.length > 0
+                          ? `毎週 ${task.recurrence.daysOfWeek.map((d: number) => ['日','月','火','水','木','金','土'][d]).join('・')}`
+                          : `${task.recurrence.interval}週間ごと`
+                      )}
+                      {task.recurrence.frequency === 'monthly' && (
+                        task.recurrence.dayOfMonth 
+                          ? `毎月${task.recurrence.dayOfMonth}日`
+                          : `${task.recurrence.interval}ヶ月ごと`
+                      )}
+                      {task.recurrence.frequency === 'yearly' && `${task.recurrence.interval}年ごと`}
+                    </div>
+                    {task.recurrence.endDate && (
+                      <div className="text-xs text-slate-600 mt-1">
+                        終了日: {format(parseISO(task.recurrence.endDate), 'M/d(EEE)', { locale: ja })}
+                      </div>
+                    )}
+                    {task.recurrence.count && (
+                      <div className="text-xs text-slate-600 mt-1">
+                        残り {task.recurrence.count} 回
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => onUpdate(task.id, { recurrence: undefined, recurrenceId: undefined })}
+                    className="flex-shrink-0 px-3 py-1.5 text-xs rounded-lg border-2 border-red-300 text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition touch-manipulation"
+                  >
+                    解除
+                  </button>
+                </div>
+                {task.recurrenceId && (
+                  <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-2">
+                    💡 このタスクは繰り返しタスクの一部です。完了すると次回のタスクが自動生成されます。
+                  </div>
+                )}
+              </div>
+            ) : (
+              <details className="bg-white rounded-lg border-2 border-slate-300">
+                <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 active:bg-slate-100 transition touch-manipulation list-none">
+                  <div className="flex items-center justify-between">
+                    <span>繰り返しを設定</span>
+                    <span className="text-slate-400">▼</span>
+                  </div>
+                </summary>
+                <div className="p-3 space-y-2 border-t border-slate-200">
+                  <button
+                    onClick={() => onUpdate(task.id, { 
+                      recurrence: { frequency: 'daily', interval: 1 }
+                    })}
+                    className="w-full text-left px-3 py-2 rounded-lg border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition text-sm touch-manipulation"
+                  >
+                    📅 毎日
+                  </button>
+                  <button
+                    onClick={() => {
+                      const dayOfWeek = new Date(task.dateISO).getDay();
+                      onUpdate(task.id, { 
+                        recurrence: { frequency: 'weekly', interval: 1, daysOfWeek: [dayOfWeek] }
+                      });
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition text-sm touch-manipulation"
+                  >
+                    📅 毎週 {['日','月','火','水','木','金','土'][new Date(task.dateISO).getDay()]}曜日
+                  </button>
+                  <button
+                    onClick={() => onUpdate(task.id, { 
+                      recurrence: { frequency: 'weekly', interval: 1, daysOfWeek: [1,2,3,4,5] }
+                    })}
+                    className="w-full text-left px-3 py-2 rounded-lg border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition text-sm touch-manipulation"
+                  >
+                    📅 毎週 平日（月〜金）
+                  </button>
+                  <button
+                    onClick={() => {
+                      const dayOfMonth = new Date(task.dateISO).getDate();
+                      onUpdate(task.id, { 
+                        recurrence: { frequency: 'monthly', interval: 1, dayOfMonth }
+                      });
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition text-sm touch-manipulation"
+                  >
+                    📅 毎月 {new Date(task.dateISO).getDate()}日
+                  </button>
+                  <button
+                    onClick={() => onUpdate(task.id, { 
+                      recurrence: { frequency: 'yearly', interval: 1 }
+                    })}
+                    className="w-full text-left px-3 py-2 rounded-lg border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition text-sm touch-manipulation"
+                  >
+                    📅 毎年
+                  </button>
+                </div>
+              </details>
+            )}
+          </div>
+
+          {/* アクション */}
+          <div className="flex gap-2">
             <button 
               onClick={()=>onDelete(task.id)} 
-              className="flex-shrink-0 min-h-[44px] px-4 py-2 rounded-lg border-2 border-red-300 text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition touch-manipulation"
+              className="flex-1 min-h-[44px] px-4 py-2 rounded-lg border-2 border-red-300 text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition touch-manipulation"
             >
               削除
             </button>
+            <button 
+              onClick={() => {
+                downloadICalendar([task], `${task.title.replace(/[^a-zA-Z0-9]/g, '_')}.ics`);
+                alert('この予定をカレンダー形式でエクスポートしました！');
+              }}
+              className="flex-1 min-h-[44px] px-4 py-2 rounded-lg border-2 border-violet-300 bg-violet-50 text-violet-700 font-medium hover:bg-violet-100 active:bg-violet-200 transition touch-manipulation text-sm"
+            >
+              📅 エクスポート
+            </button>
           </div>
-          <button 
-            onClick={() => {
-              downloadICalendar([task], `${task.title.replace(/[^a-zA-Z0-9]/g, '_')}.ics`);
-              alert('この予定をカレンダー形式でエクスポートしました！');
-            }}
-            className="w-full min-h-[44px] px-4 py-2 rounded-lg border-2 border-violet-300 bg-violet-50 text-violet-700 font-medium hover:bg-violet-100 active:bg-violet-200 transition touch-manipulation text-sm"
-          >
-            📅 この予定をカレンダーにエクスポート
-          </button>
         </div>
       )}
     </div>
@@ -1851,6 +1967,37 @@ function Dashboard({ user, onLogout }: any) {
     }
   }
   
+  async function updateTask(id: string, updates: Partial<any>) {
+    const task = tasks.find((t: any) => t.id === id);
+    if (!task) return;
+
+    if (user.uid) {
+      try {
+        const { firebaseDb } = await import('./lib/firebase');
+        await firebaseDb.tasks.update(id, updates);
+        console.log('✅ タスクをFirestoreで更新:', id, updates);
+        
+        // 繰り返し設定が追加された場合、次回インスタンスを生成
+        if (updates.recurrence && !task.recurrence) {
+          const updatedTask = { ...task, ...updates };
+          const nextInstances = generateRecurrenceInstances(updatedTask, 1);
+          if (nextInstances.length > 0) {
+            const nextTask = nextInstances[0];
+            await firebaseDb.tasks.add(user.uid, nextTask);
+            console.log('✅ 次回の繰り返しタスクを生成:', nextTask);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Firestore更新エラー:', error);
+        // フォールバック: ローカルで更新
+        setTasks((prev: any) => prev.map((t: any) => t.id === id ? { ...t, ...updates } : t));
+      }
+    } else {
+      // LocalStorage mode
+      setTasks((prev: any) => prev.map((t: any) => t.id === id ? { ...t, ...updates } : t));
+    }
+  }
+  
   async function remove(id: string) {
     clearNotification(id);
 
@@ -2128,6 +2275,7 @@ function Dashboard({ user, onLogout }: any) {
                       onToggle={toggleDone} 
                       onDelete={remove} 
                       onToggleNotify={toggleNotify} 
+                      onUpdate={updateTask}
                     />
                   ))}
                 {displayTasks.length === 0 && (
