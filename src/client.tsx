@@ -378,7 +378,9 @@ function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetD
   const recRef = useRef<any>(null);
   const [supported, setSupported] = useState(false);
   const [lastText, setLastText] = useState("");
-  const [isExpanded, setIsExpanded] = useState(true); // デフォルトで展開
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isListening, setIsListening] = useState(false);
   
   // デバッグ: lastTextの変化を監視
   useEffect(() => {
@@ -391,11 +393,16 @@ function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetD
   }, [lastText]);
 
   useEffect(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // iOS Safari対応: webkitSpeechRecognitionを優先的にチェック
+    const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    
     console.log('🎤 音声認識チェック:', {
-      SpeechRecognition: !!(window as any).SpeechRecognition,
+      userAgent: navigator.userAgent,
       webkitSpeechRecognition: !!(window as any).webkitSpeechRecognition,
-      available: !!SR
+      SpeechRecognition: !!(window as any).SpeechRecognition,
+      available: !!SR,
+      isIOS: /iPhone|iPad|iPod/.test(navigator.userAgent),
+      isSafari: /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)
     });
     
     if (SR) {
@@ -407,7 +414,10 @@ function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetD
       rec.continuous = false;
       
       rec.onstart = () => {
-        console.log('🎙️ 録音開始');
+        console.log('🎙️ 録音開始成功');
+        setIsListening(true);
+        setErrorMessage("");
+        setRecording(true);
       };
       
       rec.onresult = (e: any) => {
@@ -422,49 +432,122 @@ function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetD
       rec.onerror = (e: any) => {
         console.error('❌ 音声認識エラー:', e.error, e);
         setRecording(false);
+        setIsListening(false);
+        
+        // エラーメッセージをユーザーフレンドリーに
+        let userMessage = "";
+        switch(e.error) {
+          case 'not-allowed':
+          case 'permission-denied':
+            userMessage = "マイクへのアクセスが拒否されました。\n設定からマイクの許可を有効にしてください。";
+            break;
+          case 'no-speech':
+            userMessage = "音声が検出されませんでした。\nもう一度お試しください。";
+            break;
+          case 'aborted':
+            userMessage = "音声認識が中断されました。";
+            break;
+          case 'network':
+            userMessage = "ネットワークエラーが発生しました。\n接続を確認してください。";
+            break;
+          default:
+            userMessage = `音声認識エラー: ${e.error}\n手入力をご利用ください。`;
+        }
+        setErrorMessage(userMessage);
+        
+        // iOS Safari特有のエラーハンドリング
+        if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+          console.warn('📱 iOS環境でのエラー検出');
+        }
       };
       
       rec.onend = () => {
         console.log('⏹️ 録音終了');
         setRecording(false);
+        setIsListening(false);
       };
       
       recRef.current = rec;
     } else {
       console.warn('⚠️ 音声認識はこのブラウザでサポートされていません');
+      setErrorMessage("このブラウザは音声認識に対応していません。\niPhone/iPadの場合はSafariブラウザをご利用ください。");
     }
   }, []);
 
-  const handleStartRecording = () => {
+  const handleStartRecording = async () => {
     console.log('🔘 録音開始処理');
+    setErrorMessage("");
+    
     if (!supported) {
       console.warn('⚠️ 音声認識非対応');
-      alert('このブラウザは音声認識に対応していません。手入力をご利用ください。');
+      setErrorMessage('このブラウザは音声認識に対応していません。\n手入力をご利用ください。');
       setIsExpanded(true);
       return;
     }
-    setLastText("");
-    setRecording(true);
-    setIsExpanded(true);
+    
+    // iOS Safari: ユーザーインタラクションから直接実行する必要がある
     try {
-      console.log('▶️ 音声認識を開始');
+      // マイク権限の事前確認（可能な場合）
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+          console.log('🎤 マイク権限状態:', permissionStatus.state);
+          
+          if (permissionStatus.state === 'denied') {
+            setErrorMessage('マイクへのアクセスが拒否されています。\n設定からマイクの許可を有効にしてください。');
+            return;
+          }
+        } catch (e) {
+          // permissions APIがサポートされていない場合（iOS Safari等）
+          console.log('ℹ️ Permissions APIは利用できません（iOS Safari等）');
+        }
+      }
+      
+      setLastText("");
+      setRecording(true);
+      setIsListening(false);
+      
+      console.log('▶️ 音声認識を開始します...');
+      console.log('📱 デバイス情報:', {
+        isIOS: /iPhone|iPad|iPod/.test(navigator.userAgent),
+        isSafari: /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent),
+        userAgent: navigator.userAgent
+      });
+      
+      // 短いディレイを入れてUIの更新を確実にする（iOS対策）
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       recRef.current?.start();
-    } catch (error) {
+      console.log('✅ start()メソッド呼び出し完了');
+      
+    } catch (error: any) {
       console.error('❌ 音声認識開始エラー:', error);
-      alert('音声認識の開始に失敗しました。手入力をご利用ください。');
       setRecording(false);
+      setIsListening(false);
+      
+      let userMessage = '音声認識の開始に失敗しました。\n';
+      if (error.name === 'InvalidStateError') {
+        userMessage += '音声認識が既に実行中です。\n少し待ってから再度お試しください。';
+      } else {
+        userMessage += '手入力をご利用ください。';
+      }
+      setErrorMessage(userMessage);
     }
   };
   
   const handleStopRecording = () => {
     console.log('⏹️ 録音停止処理');
+    setErrorMessage("");
+    
     try {
       recRef.current?.stop();
       console.log('✅ 音声認識を停止');
     } catch (error) {
       console.error('❌ 音声認識停止エラー:', error);
+      setErrorMessage('音声認識の停止に失敗しました。');
     } finally {
       setRecording(false);
+      setIsListening(false);
     }
   };
 
@@ -477,17 +560,24 @@ function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetD
               <span className="text-2xl">📝</span>
               <span>予定を追加</span>
               {recording && <span className="inline-block w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+              {isListening && <span className="text-xs text-red-500 font-medium">🔴 聞いています</span>}
             </div>
             <div className="text-xs text-slate-600 mt-1">
-              {recording ? "🎙️ 録音中..." : supported ? "音声入力または手入力で予定を追加" : "手入力で予定を追加"}
+              {recording 
+                ? isListening 
+                  ? "🎙️ 録音中... 話してください" 
+                  : "🎙️ マイクを起動中..."
+                : supported 
+                  ? "音声入力または手入力で予定を追加" 
+                  : "手入力で予定を追加"}
             </div>
           </div>
           
-          {/* Simplified Recording Button - iOS Compatible */}
+          {/* Recording Button - iOS Compatible */}
           {supported && !recording && (
             <div 
               onClick={handleStartRecording}
-              className="flex-shrink-0 w-20 h-20 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-500 shadow-2xl cursor-pointer select-none"
+              className="flex-shrink-0 w-20 h-20 rounded-full bg-gradient-to-br from-pink-500 via-purple-500 to-indigo-500 shadow-2xl cursor-pointer select-none relative"
               style={{ 
                 WebkitTapHighlightColor: 'rgba(0,0,0,0)',
                 touchAction: 'manipulation',
@@ -501,31 +591,66 @@ function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetD
                   <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
                 </svg>
               </div>
+              {/* タップヒント */}
+              <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-slate-500 whitespace-nowrap">
+                タップ
+              </div>
             </div>
           )}
           
-          {/* Stop Recording Button */}
+          {/* Stop Recording Button with Enhanced Visual Feedback */}
           {recording && (
             <div 
               onClick={handleStopRecording}
-              className="flex-shrink-0 w-20 h-20 rounded-full bg-red-500 shadow-2xl cursor-pointer select-none animate-pulse"
+              className="flex-shrink-0 w-20 h-20 rounded-full bg-red-500 shadow-2xl cursor-pointer select-none relative"
               style={{ 
                 WebkitTapHighlightColor: 'rgba(0,0,0,0)',
                 touchAction: 'manipulation',
                 userSelect: 'none',
-                WebkitUserSelect: 'none'
+                WebkitUserSelect: 'none',
+                animation: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite'
               }}
             >
-              <div className="w-full h-full rounded-full flex items-center justify-center active:scale-95 transition-transform">
+              {/* Listening Animation Ring */}
+              {isListening && (
+                <div className="absolute inset-0 rounded-full border-4 border-red-300 animate-ping"></div>
+              )}
+              
+              <div className="w-full h-full rounded-full flex items-center justify-center active:scale-95 transition-transform relative z-10">
                 <div className="w-8 h-8 bg-white rounded-md"></div>
+              </div>
+              
+              {/* Stop Hint */}
+              <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-red-600 whitespace-nowrap font-semibold">
+                {isListening ? "話してください" : "起動中..."}
               </div>
             </div>
           )}
         </div>
       
         <div className="space-y-3">
+          {/* エラーメッセージ表示 */}
+          {errorMessage && (
+            <div className="bg-red-50 border-2 border-red-300 rounded-xl p-3 text-sm text-red-700 whitespace-pre-line">
+              <div className="font-semibold mb-1">⚠️ エラー</div>
+              {errorMessage}
+            </div>
+          )}
+          
+          {/* 成功時のフィードバック */}
+          {!recording && lastText && !errorMessage && (
+            <div className="bg-green-50 border-2 border-green-300 rounded-xl p-3 text-sm text-green-700">
+              <div className="font-semibold mb-1">✅ 音声認識成功</div>
+              認識されたテキストを確認して登録してください
+            </div>
+          )}
+          
           <div className="text-xs text-slate-600 bg-slate-50 rounded-lg p-3">
             💡 音声または手入力で内容を入力後、カレンダーから日付を選んで登録してください
+            <br />
+            <span className="text-xs text-slate-500 mt-1 block">
+              📱 iPhoneの場合: マイクボタンをタップ後、「許可」を選択してください
+            </span>
           </div>
           
           <textarea 
