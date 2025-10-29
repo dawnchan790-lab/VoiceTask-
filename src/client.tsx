@@ -281,77 +281,98 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
   const recRef = useRef<any>(null);
   const [supported, setSupported] = useState(false);
   const [lastText, setLastText] = useState("");
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true); // デフォルトで展開
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    console.log('🎤 音声認識チェック:', {
+      SpeechRecognition: !!(window as any).SpeechRecognition,
+      webkitSpeechRecognition: !!(window as any).webkitSpeechRecognition,
+      available: !!SR
+    });
+    
     if (SR) {
       setSupported(true);
       const rec = new SR();
       rec.lang = "ja-JP";
       rec.interimResults = true;
       rec.maxAlternatives = 1;
+      rec.continuous = false;
+      
+      rec.onstart = () => {
+        console.log('🎙️ 録音開始');
+      };
+      
       rec.onresult = (e: any) => {
+        console.log('📝 音声認識結果:', e.results);
         const t = Array.from(e.results)
           .map((r: any) => r[0]?.transcript)
           .join(" ");
+        console.log('✅ 変換されたテキスト:', t);
         setLastText(t);
       };
-      rec.onend = () => setRecording(false);
+      
+      rec.onerror = (e: any) => {
+        console.error('❌ 音声認識エラー:', e.error, e);
+        setRecording(false);
+      };
+      
+      rec.onend = () => {
+        console.log('⏹️ 録音終了');
+        setRecording(false);
+      };
+      
       recRef.current = rec;
+    } else {
+      console.warn('⚠️ 音声認識はこのブラウザでサポートされていません');
     }
   }, []);
 
   const start = () => {
-    if (!supported) return;
+    console.log('🔘 開始ボタンクリック');
+    if (!supported) {
+      console.warn('⚠️ 音声認識非対応のため開始できません');
+      alert('このブラウザは音声認識に対応していません。手入力をご利用ください。');
+      setIsExpanded(true);
+      return;
+    }
     setLastText("");
     setRecording(true);
     setIsExpanded(true);
     try {
+      console.log('▶️ 音声認識を開始します...');
       recRef.current?.start();
     } catch (error) {
-      console.error('音声認識開始エラー:', error);
+      console.error('❌ 音声認識開始エラー:', error);
+      alert('音声認識の開始に失敗しました。手入力をご利用ください。');
       setRecording(false);
     }
   };
   
   const stop = () => {
+    console.log('⏹️ 停止ボタンクリック');
     try {
       recRef.current?.stop();
-      setRecording(false);
+      console.log('✅ 音声認識を停止しました');
     } catch (error) {
-      console.error('音声認識停止エラー:', error);
+      console.error('❌ 音声認識停止エラー:', error);
+    } finally {
       setRecording(false);
     }
   };
 
   return (
-    <div className="bg-white/90 border-2 border-slate-200 rounded-2xl shadow-lg backdrop-blur-sm overflow-hidden">
-      <div 
-        className={classNames(
-          "p-4 touch-manipulation",
-          !recording && "cursor-pointer"
-        )}
-        onClick={(e) => {
-          if (!recording) {
-            setIsExpanded(!isExpanded);
-          }
-        }}
-        onTouchEnd={(e) => {
-          if (!recording) {
-            setIsExpanded(!isExpanded);
-          }
-        }}
-      >
-        <div className="flex items-center justify-between gap-3">
+    <div className="bg-white/90 border-2 border-slate-200 rounded-2xl shadow-lg backdrop-blur-sm">
+      <div className="p-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-base flex items-center gap-2">
-              <span className="text-2xl">🎤</span>
-              <span>ボイスメモ</span>
+              <span className="text-2xl">📝</span>
+              <span>予定を追加</span>
               {recording && <span className="inline-block w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
             </div>
-            <div className="text-xs text-slate-600 mt-1 truncate">
-              {recording ? "録音中..." : "タップして予定を追加"}
+            <div className="text-xs text-slate-600 mt-1">
+              {recording ? "🎙️ 録音中..." : supported ? "音声入力または手入力で予定を追加" : "手入力で予定を追加"}
             </div>
           </div>
           {supported && !recording && (
@@ -399,45 +420,56 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
             </button>
           )}
         </div>
-      </div>
       
-      {isExpanded && (
-        <div className="px-4 pb-4 space-y-3 border-t border-slate-200 pt-4">
+        <div className="space-y-3">
           <div className="text-xs text-slate-600 bg-slate-50 rounded-lg p-3">
             💡 例: 「明日10時 重要 顧客に見積提出 30分」
           </div>
           
           <textarea 
             className="w-full border-2 border-slate-200 rounded-xl p-3 text-base focus:border-violet-500 focus:outline-none transition resize-none" 
-            rows={3} 
-            placeholder="ここにメモを入力（音声が使えない場合）" 
+            rows={4} 
+            placeholder="予定の内容を入力してください&#10;例: 明日10時 会議 1時間" 
             value={lastText} 
             onChange={(e)=>setLastText(e.target.value)} 
           />
           
           <div className="flex gap-2">
             <button 
-              onClick={()=>{ 
+              type="button"
+              onClick={(e)=>{ 
+                e.preventDefault();
+                console.log('➕ 追加ボタンクリック, text:', lastText);
                 if (lastText.trim()) {
                   onText(lastText.trim()); 
                   setLastText(""); 
-                  setIsExpanded(false);
                 }
-              }} 
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                console.log('➕ 追加ボタンタッチ, text:', lastText);
+                if (lastText.trim()) {
+                  onText(lastText.trim()); 
+                  setLastText(""); 
+                }
+              }}
               disabled={!lastText.trim()}
-              className="flex-1 min-h-[48px] px-4 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white font-medium shadow-lg transition-all hover:shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation"
+              className="flex-1 min-h-[52px] px-4 py-3 rounded-xl bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-lg transition-all hover:shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation text-base"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              追加
+              📌 予定を追加
             </button>
             <button 
-              onClick={()=>{ setLastText(""); setIsExpanded(false); }} 
-              className="min-h-[48px] px-4 py-3 rounded-xl border-2 border-slate-300 font-medium hover:bg-slate-50 active:scale-95 touch-manipulation"
+              type="button"
+              onClick={()=>{ setLastText(""); }} 
+              className="min-h-[52px] px-4 py-3 rounded-xl border-2 border-slate-300 font-medium hover:bg-slate-50 active:scale-95 touch-manipulation"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              閉じる
+              クリア
             </button>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
