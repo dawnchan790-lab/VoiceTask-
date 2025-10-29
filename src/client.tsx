@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { format, parseISO, startOfToday, isToday, addMinutes, isAfter, addMinutes as add } from "date-fns";
+import { format, parseISO, startOfToday, isToday, addMinutes, isAfter, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, isSameMonth, isSameDay, eachDayOfInterval } from "date-fns";
 import { ja } from "date-fns/locale";
 import * as chrono from "chrono-node";
 import { v4 as uuidv4 } from "uuid";
@@ -369,6 +369,139 @@ function CalendarStrip({ current, onSelectDate, tasks }: { current: Date; onSele
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function MonthCalendar({ currentDate, onSelectDate, tasks }: { currentDate: Date; onSelectDate: (date: Date) => void; tasks: any[] }) {
+  const [viewMonth, setViewMonth] = useState(currentDate);
+  
+  // 月の最初と最後の日
+  const monthStart = startOfMonth(viewMonth);
+  const monthEnd = endOfMonth(viewMonth);
+  
+  // カレンダーグリッドの最初と最後（週の開始・終了を含む）
+  const calendarStart = startOfWeek(monthStart, { locale: ja });
+  const calendarEnd = endOfWeek(monthEnd, { locale: ja });
+  
+  // すべての日付を取得
+  const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
+  
+  // 各日付のタスク数を計算
+  const getTaskCount = (date: Date) => {
+    const dateStr = format(date, "yyyy-MM-dd");
+    return tasks.filter((t: any) => {
+      const taskDate = format(parseISO(t.dateISO), "yyyy-MM-dd");
+      return taskDate === dateStr;
+    }).length;
+  };
+  
+  // 前月・次月に移動
+  const goToPrevMonth = () => setViewMonth(prev => addMonths(prev, -1));
+  const goToNextMonth = () => setViewMonth(prev => addMonths(prev, 1));
+  const goToToday = () => {
+    const today = new Date();
+    setViewMonth(today);
+    onSelectDate(today);
+  };
+  
+  return (
+    <div className="bg-white border-2 border-slate-200 rounded-2xl shadow-lg p-4">
+      {/* ヘッダー: 月表示と操作ボタン */}
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={goToPrevMonth}
+          className="w-10 h-10 rounded-lg border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition flex items-center justify-center touch-manipulation"
+          style={{ WebkitTapHighlightColor: 'transparent' }}
+        >
+          <span className="text-xl">←</span>
+        </button>
+        
+        <div className="flex items-center gap-2">
+          <div className="text-lg font-bold text-slate-800">
+            {format(viewMonth, "yyyy年M月", { locale: ja })}
+          </div>
+          <button
+            onClick={goToToday}
+            className="px-3 py-1 text-xs rounded-lg border-2 border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 active:bg-violet-200 transition touch-manipulation"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            今日
+          </button>
+        </div>
+        
+        <button
+          onClick={goToNextMonth}
+          className="w-10 h-10 rounded-lg border-2 border-slate-300 hover:bg-slate-50 active:bg-slate-100 transition flex items-center justify-center touch-manipulation"
+          style={{ WebkitTapHighlightColor: 'transparent' }}
+        >
+          <span className="text-xl">→</span>
+        </button>
+      </div>
+      
+      {/* 曜日ヘッダー */}
+      <div className="grid grid-cols-7 gap-1 mb-2">
+        {["日", "月", "火", "水", "木", "金", "土"].map((day, i) => (
+          <div key={day} className={classNames(
+            "text-center text-xs font-semibold py-2",
+            i === 0 ? "text-red-600" : i === 6 ? "text-blue-600" : "text-slate-600"
+          )}>
+            {day}
+          </div>
+        ))}
+      </div>
+      
+      {/* カレンダーグリッド */}
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((day) => {
+          const isCurrentMonth = isSameMonth(day, viewMonth);
+          const isSelected = isSameDay(day, currentDate);
+          const isTodayDate = isToday(day);
+          const taskCount = getTaskCount(day);
+          const dayOfWeek = day.getDay();
+          
+          return (
+            <button
+              key={day.toISOString()}
+              onClick={() => {
+                onSelectDate(day);
+                setViewMonth(day); // 月表示も更新
+              }}
+              className={classNames(
+                "aspect-square p-1 rounded-lg text-center transition-all touch-manipulation relative",
+                isSelected
+                  ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white shadow-lg scale-105"
+                  : isTodayDate
+                    ? "bg-violet-100 border-2 border-violet-500 text-violet-900 font-semibold"
+                    : taskCount > 0
+                      ? "bg-fuchsia-50 border-2 border-fuchsia-200 hover:bg-fuchsia-100"
+                      : "bg-white border border-slate-200 hover:bg-slate-50",
+                !isCurrentMonth && "opacity-30",
+                "flex flex-col items-center justify-center"
+              )}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              <div className={classNames(
+                "text-sm font-medium",
+                !isCurrentMonth && "text-slate-400",
+                isSelected && "text-white",
+                !isSelected && dayOfWeek === 0 && "text-red-600",
+                !isSelected && dayOfWeek === 6 && "text-blue-600"
+              )}>
+                {format(day, "d")}
+              </div>
+              {taskCount > 0 && (
+                <div className={classNames(
+                  "text-[10px] font-semibold mt-0.5",
+                  isSelected ? "text-white" : "text-fuchsia-600"
+                )}>
+                  {taskCount}件
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -831,6 +964,7 @@ function Dashboard({ user, onLogout }: any) {
   const [tasks, setTasks] = useState(() => loadTasks(user.email));
   const [filterTodayOnly, setFilterTodayOnly] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [viewMode, setViewMode] = useState<'week' | 'month'>('week'); // カレンダー表示モード
 
   useEffect(() => { saveTasks(user.email, tasks); }, [tasks, user.email]);
 
@@ -971,14 +1105,49 @@ function Dashboard({ user, onLogout }: any) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             {/* Left column - Main schedule */}
             <div className="lg:col-span-2 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <h2 className="text-xl sm:text-2xl font-bold">マイスケジュール</h2>
-                <div className="text-xs sm:text-sm text-slate-600 font-medium">
-                  {format(currentDate, "M/d(EEE)", { locale: ja })}
+                
+                {/* カレンダー表示切替ボタン */}
+                <div className="flex items-center gap-2">
+                  <div className="text-xs sm:text-sm text-slate-600 font-medium hidden sm:block">
+                    {format(currentDate, "M/d(EEE)", { locale: ja })}
+                  </div>
+                  <div className="flex rounded-lg border-2 border-slate-300 overflow-hidden">
+                    <button
+                      onClick={() => setViewMode('week')}
+                      className={classNames(
+                        "px-3 py-1.5 text-xs sm:text-sm font-medium transition touch-manipulation",
+                        viewMode === 'week'
+                          ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white"
+                          : "bg-white text-slate-700 hover:bg-slate-50"
+                      )}
+                      style={{ WebkitTapHighlightColor: 'transparent' }}
+                    >
+                      週表示
+                    </button>
+                    <button
+                      onClick={() => setViewMode('month')}
+                      className={classNames(
+                        "px-3 py-1.5 text-xs sm:text-sm font-medium transition touch-manipulation",
+                        viewMode === 'month'
+                          ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white"
+                          : "bg-white text-slate-700 hover:bg-slate-50"
+                      )}
+                      style={{ WebkitTapHighlightColor: 'transparent' }}
+                    >
+                      月表示
+                    </button>
+                  </div>
                 </div>
               </div>
               
-              <CalendarStrip current={currentDate} onSelectDate={setCurrentDate} tasks={tasks} />
+              {/* カレンダー表示: 週表示/月表示を切り替え */}
+              {viewMode === 'week' ? (
+                <CalendarStrip current={currentDate} onSelectDate={setCurrentDate} tasks={tasks} />
+              ) : (
+                <MonthCalendar currentDate={currentDate} onSelectDate={setCurrentDate} tasks={tasks} />
+              )}
 
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="font-semibold text-base sm:text-lg">
