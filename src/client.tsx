@@ -1144,6 +1144,12 @@ function Dashboard({ user, onLogout }: any) {
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week'); // カレンダー表示モード
   const [tasksLoading, setTasksLoading] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
+  
+  // プッシュ通知関連のステート
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const [fcmToken, setFcmToken] = useState<string | null>(null);
+  const [notificationSetupLoading, setNotificationSetupLoading] = useState(false);
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
 
   // Firestore リアルタイム同期
   useEffect(() => {
@@ -1214,6 +1220,67 @@ function Dashboard({ user, onLogout }: any) {
       saveTasks(user.email, tasks);
     }
   }, [tasks, user.email, user.uid]);
+
+  // プッシュ通知のセットアップ
+  useEffect(() => {
+    const setupNotifications = async () => {
+      // 通知権限の初期状態を取得
+      if ('Notification' in window) {
+        setNotificationPermission(Notification.permission);
+        
+        // 権限がまだリクエストされていない場合、プロンプトを表示
+        if (Notification.permission === 'default' && user.uid) {
+          // 初回訪問から少し遅れて表示（UX改善）
+          setTimeout(() => {
+            setShowNotificationPrompt(true);
+          }, 3000);
+        }
+      }
+
+      // Service Workerの登録
+      try {
+        const { serviceWorkerManager } = await import('./lib/serviceWorker');
+        const { registration, error } = await serviceWorkerManager.register();
+        
+        if (error) {
+          console.warn('⚠️ Service Worker登録失敗:', error);
+        } else {
+          console.log('✅ Service Worker登録成功');
+        }
+      } catch (error) {
+        console.warn('⚠️ Service Worker初期化エラー:', error);
+      }
+
+      // フォアグラウンド通知のリスナー設定
+      try {
+        const { firebaseMessaging } = await import('./lib/firebase');
+        
+        const unsubscribe = firebaseMessaging.onForegroundMessage((payload) => {
+          console.log('📬 フォアグラウンド通知受信:', payload);
+          
+          // ブラウザ通知を表示
+          if (Notification.permission === 'granted') {
+            new Notification(
+              payload.notification?.title || 'VoiceTask 通知',
+              {
+                body: payload.notification?.body || '新しい通知があります',
+                icon: '/icon-192x192.png',
+                tag: payload.data?.taskId
+              }
+            );
+          }
+        });
+
+        return () => {
+          if (unsubscribe) unsubscribe();
+        };
+      } catch (error) {
+        console.warn('⚠️ Firebase Messaging初期化エラー:', error);
+      }
+    };
+
+    setupNotifications();
+  }, [user.uid]);
 
   useEffect(() => {
     ensureNotificationPermission();
@@ -1370,6 +1437,64 @@ function Dashboard({ user, onLogout }: any) {
     }
   }
 
+  // プッシュ通知のセットアップ（FCMトークン取得とFirestoreへの保存）
+  async function setupPushNotifications() {
+    if (!user.uid) {
+      alert('プッシュ通知を有効にするには、ログインが必要です');
+      return;
+    }
+
+    setNotificationSetupLoading(true);
+
+    try {
+      const { firebaseMessaging } = await import('./lib/firebase');
+      
+      // VAPID Keyを取得（環境変数から）
+      const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+      
+      if (!vapidKey || vapidKey === 'your_vapid_key_here') {
+        alert('Firebase Cloud Messagingが設定されていません。\n\n環境変数 VITE_FIREBASE_VAPID_KEY を設定してください。');
+        setNotificationSetupLoading(false);
+        return;
+      }
+
+      // 通知権限をリクエストし、FCMトークンを取得
+      const { token, error } = await firebaseMessaging.requestPermissionAndGetToken(vapidKey);
+
+      if (error) {
+        console.error('❌ FCMトークン取得エラー:', error);
+        alert('通知の設定に失敗しました: ' + error);
+        setNotificationSetupLoading(false);
+        return;
+      }
+
+      if (!token) {
+        alert('通知権限が拒否されました');
+        setNotificationSetupLoading(false);
+        return;
+      }
+
+      // トークンをFirestoreに保存
+      const saveResult = await firebaseMessaging.saveTokenToFirestore(user.uid, token);
+
+      if (saveResult.error) {
+        console.error('❌ トークン保存エラー:', saveResult.error);
+        alert('通知設定の保存に失敗しました');
+      } else {
+        console.log('✅ プッシュ通知セットアップ完了');
+        setFcmToken(token);
+        setNotificationPermission('granted');
+        setShowNotificationPrompt(false);
+        alert('✅ プッシュ通知が有効になりました！\n\nタスクの期限前に通知が届きます。');
+      }
+    } catch (error) {
+      console.error('❌ プッシュ通知セットアップエラー:', error);
+      alert('通知の設定中にエラーが発生しました');
+    } finally {
+      setNotificationSetupLoading(false);
+    }
+  }
+
   const displayTasks = filterTodayOnly 
     ? todays 
     : tasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"));
@@ -1452,6 +1577,38 @@ function Dashboard({ user, onLogout }: any) {
                   <p className="text-xs text-amber-700 mt-1">
                     データはこのデバイスに保存されます。オンラインに復帰すると自動で同期されます。
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Notification Prompt */}
+          {showNotificationPrompt && notificationPermission === 'default' && user.uid && (
+            <div className="mb-4 p-4 bg-gradient-to-r from-violet-50 to-fuchsia-50 border-2 border-violet-300 rounded-xl">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">🔔</span>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-violet-900 mb-2">
+                    プッシュ通知を有効にしますか？
+                  </p>
+                  <p className="text-xs text-violet-700 mb-3">
+                    タスクの期限前に通知を受け取れます。アプリを開いていなくても通知が届きます。
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={setupPushNotifications}
+                      disabled={notificationSetupLoading}
+                      className="px-4 py-2 bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white text-sm font-medium rounded-lg hover:opacity-90 active:opacity-80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {notificationSetupLoading ? '設定中...' : '✅ 有効にする'}
+                    </button>
+                    <button
+                      onClick={() => setShowNotificationPrompt(false)}
+                      className="px-4 py-2 bg-white border-2 border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 active:bg-slate-100 transition"
+                    >
+                      後で
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1587,6 +1744,52 @@ function Dashboard({ user, onLogout }: any) {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                {/* 通知設定 */}
+                <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
+                  <div className="font-semibold mb-3 text-base sm:text-lg flex items-center gap-2">
+                    <span className="text-xl">🔔</span>
+                    <span>通知設定</span>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">プッシュ通知</div>
+                        <div className="text-xs text-slate-600 mt-1">
+                          {notificationPermission === 'granted' ? (
+                            <span className="text-emerald-600">✅ 有効</span>
+                          ) : notificationPermission === 'denied' ? (
+                            <span className="text-red-600">❌ 拒否されています</span>
+                          ) : (
+                            <span className="text-amber-600">⚠️ 未設定</span>
+                          )}
+                        </div>
+                      </div>
+                      {notificationPermission !== 'granted' && user.uid && (
+                        <button
+                          onClick={setupPushNotifications}
+                          disabled={notificationSetupLoading}
+                          className="ml-3 px-4 py-2 bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white text-sm font-medium rounded-lg hover:opacity-90 active:opacity-80 transition disabled:opacity-50"
+                        >
+                          {notificationSetupLoading ? '設定中...' : '有効化'}
+                        </button>
+                      )}
+                    </div>
+
+                    {notificationPermission === 'denied' && (
+                      <div className="text-xs text-slate-600 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        ブラウザの設定から通知を許可してください
+                      </div>
+                    )}
+
+                    {!user.uid && (
+                      <div className="text-xs text-slate-600 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        プッシュ通知を使うには、ログインが必要です
+                      </div>
+                    )}
                   </div>
                 </div>
 

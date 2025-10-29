@@ -30,6 +30,13 @@ import {
   Timestamp,
   enableIndexedDbPersistence
 } from 'firebase/firestore';
+import { 
+  getMessaging, 
+  Messaging,
+  getToken,
+  onMessage,
+  isSupported as isMessagingSupported
+} from 'firebase/messaging';
 
 // Firebase configuration
 // IMPORTANT: Replace these values with your actual Firebase project credentials
@@ -47,11 +54,24 @@ const firebaseConfig = {
 let app: FirebaseApp;
 let auth: Auth;
 let db: Firestore;
+let messaging: Messaging | null = null;
 
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
   db = getFirestore(app);
+  
+  // Initialize Firebase Messaging (only supported in browser with service worker)
+  if (typeof window !== 'undefined') {
+    isMessagingSupported().then((supported) => {
+      if (supported) {
+        messaging = getMessaging(app);
+        console.log('📬 Firebase Messaging initialized');
+      } else {
+        console.warn('⚠️ Firebase Messaging not supported in this browser');
+      }
+    });
+  }
   
   // Enable offline persistence
   enableIndexedDbPersistence(db)
@@ -265,6 +285,96 @@ export const firebaseDb = {
   }
 };
 
+// Firebase Cloud Messaging Functions
+export const firebaseMessaging = {
+  // Check if messaging is supported
+  isSupported: async () => {
+    try {
+      return await isMessagingSupported();
+    } catch {
+      return false;
+    }
+  },
+
+  // Request notification permission and get FCM token
+  requestPermissionAndGetToken: async (vapidKey: string) => {
+    try {
+      // Check if Notification API is supported
+      if (!('Notification' in window)) {
+        console.warn('⚠️ This browser does not support notifications');
+        return { token: null, error: 'Notifications not supported' };
+      }
+
+      // Check if messaging is initialized
+      if (!messaging) {
+        console.warn('⚠️ Firebase Messaging not initialized');
+        return { token: null, error: 'Messaging not initialized' };
+      }
+
+      // Request permission
+      const permission = await Notification.requestPermission();
+      
+      if (permission !== 'granted') {
+        console.warn('⚠️ Notification permission denied');
+        return { token: null, error: 'Permission denied' };
+      }
+
+      console.log('✅ Notification permission granted');
+
+      // Get FCM token
+      const token = await getToken(messaging, { vapidKey });
+      console.log('📱 FCM Token obtained:', token.substring(0, 20) + '...');
+      
+      return { token, error: null };
+    } catch (error: any) {
+      console.error('❌ Get FCM token error:', error);
+      return { token: null, error: error.message };
+    }
+  },
+
+  // Save FCM token to Firestore
+  saveTokenToFirestore: async (userId: string, token: string) => {
+    try {
+      const tokenDoc = doc(db, 'users', userId, 'fcmTokens', token);
+      await setDoc(tokenDoc, {
+        token,
+        createdAt: Timestamp.now(),
+        lastUsed: Timestamp.now(),
+        deviceInfo: {
+          userAgent: navigator.userAgent,
+          platform: navigator.platform
+        }
+      });
+      console.log('✅ FCM token saved to Firestore');
+      return { error: null };
+    } catch (error: any) {
+      console.error('❌ Save FCM token error:', error);
+      return { error: error.message };
+    }
+  },
+
+  // Listen for foreground messages
+  onForegroundMessage: (callback: (payload: any) => void) => {
+    if (!messaging) {
+      console.warn('⚠️ Firebase Messaging not initialized');
+      return () => {};
+    }
+
+    return onMessage(messaging, (payload) => {
+      console.log('📬 Foreground message received:', payload);
+      callback(payload);
+    });
+  },
+
+  // Get current notification permission status
+  getPermissionStatus: () => {
+    if (!('Notification' in window)) {
+      return 'unsupported';
+    }
+    return Notification.permission;
+  }
+};
+
 // Export Firebase instances
-export { app, auth, db };
-export default { firebaseAuth, firebaseDb };
+export { app, auth, db, messaging };
+export default { firebaseAuth, firebaseDb, firebaseMessaging };
