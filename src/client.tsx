@@ -183,31 +183,29 @@ function clearNotification(taskId: string) {
 // -----------------------------
 // NLP parsing (Japanese-friendly)
 // -----------------------------
-function parseVoiceTextToTask(text: string) {
+function parseVoiceTextToTask(text: string, targetDate: Date) {
   // Heuristics:
-  // - Extract datetime via chrono (ja locale auto-detect)
+  // - Use specified targetDate for the task date
+  // - Extract time via chrono (ja locale auto-detect) - only time, not date
   // - Detect priority keywords: "重要", "至急", "最優先"
   // - Detect duration like "30分", "1時間"; default 30m
   // - Title = remaining text after removing parsed parts / keywords
   
-  // デフォルトは今日の午前9時
-  const defaultDate = new Date();
-  defaultDate.setHours(9, 0, 0, 0);
+  // ターゲット日付をコピーして、デフォルトは午前9時
+  const refDate = new Date(targetDate);
+  refDate.setHours(9, 0, 0, 0);
   
+  // 時刻のみを解析（日付は使用しない）
   const results = chrono.parse(text, new Date(), { forwardDate: true });
-  let refDate: Date;
   
   if (results && results.length > 0 && results[0].start) {
-    refDate = results[0].start.date();
-    
-    // 時刻が指定されていない場合は午前9時に設定
     const hasTime = results[0].start.get('hour') !== null;
-    if (!hasTime) {
-      refDate.setHours(9, 0, 0, 0);
+    if (hasTime) {
+      // 時刻が指定されている場合は、それを使用
+      const hour = results[0].start.get('hour');
+      const minute = results[0].start.get('minute') || 0;
+      refDate.setHours(hour, minute, 0, 0);
     }
-  } else {
-    // 日付解析に失敗した場合は今日の午前9時
-    refDate = defaultDate;
   }
 
   // duration
@@ -221,9 +219,9 @@ function parseVoiceTextToTask(text: string) {
   // priority
   let priority = /重要|至急|最優先/.test(text) ? "high" : "normal";
 
-  // title cleanup
+  // title cleanup - 日付関連のキーワードは削除しない（日付は選択済み）
   let title = text
-    .replace(/(今日|明日|明後日|今週|来週|\d+月\d+日|\d{1,2}:\d{2}|午前|午後|AM|PM|\d+分|\d+時間|重要|至急|最優先)/g, "")
+    .replace(/(\d{1,2}:\d{2}|午前|午後|AM|PM|\d+分|\d+時間|重要|至急|最優先)/g, "")
     .replace(/[\s　]+/g, " ")
     .trim();
   if (!title) title = "ボイスメモ";
@@ -375,7 +373,7 @@ function CalendarStrip({ current, onSelectDate, tasks }: { current: Date; onSele
   );
 }
 
-function VoiceCapture({ onText }: { onText: (text: string) => void }) {
+function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetDate: Date) => void; selectedDate: Date }) {
   const [recording, setRecording] = useState(false);
   const recRef = useRef<any>(null);
   const [supported, setSupported] = useState(false);
@@ -527,16 +525,32 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
       
         <div className="space-y-3">
           <div className="text-xs text-slate-600 bg-slate-50 rounded-lg p-3">
-            💡 例: 「明日10時 重要 顧客に見積提出 30分」
+            💡 音声または手入力で内容を入力後、カレンダーから日付を選んで登録してください
           </div>
           
           <textarea 
             className="w-full border-2 border-slate-200 rounded-xl p-3 text-base focus:border-violet-500 focus:outline-none transition resize-none" 
             rows={4} 
-            placeholder="予定の内容を入力してください&#10;例: 明日10時 会議 1時間" 
+            placeholder="予定の内容を入力してください&#10;例: 10時 会議 1時間" 
             value={lastText} 
             onChange={(e)=>setLastText(e.target.value)} 
           />
+          
+          {/* 選択中の日付表示 */}
+          {lastText.trim().length > 0 && (
+            <div className="bg-gradient-to-r from-fuchsia-50 via-violet-50 to-indigo-50 border-2 border-violet-300 rounded-xl p-4">
+              <div className="text-sm font-medium text-slate-700 mb-2">
+                📅 登録先の日付
+              </div>
+              <div className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600">
+                {format(selectedDate, "M月d日(EEE)", { locale: ja })}
+                {isToday(selectedDate) && <span className="ml-2 text-sm">(今日)</span>}
+              </div>
+              <div className="text-xs text-slate-600 mt-2">
+                💡 他の日付に登録したい場合は、上のカレンダーから日付を選択してください
+              </div>
+            </div>
+          )}
           
           <div className="flex gap-2">
             <button 
@@ -544,11 +558,11 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
               onClick={()=>{ 
                 console.log('➕ 追加ボタンクリック');
                 console.log('  - lastText:', lastText);
-                console.log('  - trimmed:', lastText.trim());
+                console.log('  - selectedDate:', format(selectedDate, "yyyy-MM-dd", { locale: ja }));
                 const trimmedText = lastText.trim();
                 if (trimmedText) {
                   console.log('✅ テキストを追加:', trimmedText);
-                  onText(trimmedText); 
+                  onText(trimmedText, selectedDate); 
                   setLastText(""); 
                 } else {
                   console.warn('⚠️ テキストが空です');
@@ -563,7 +577,7 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
               )}
               style={{ WebkitTapHighlightColor: 'transparent' }}
             >
-              📌 予定を追加 {lastText.trim().length > 0 ? '✓' : ''}
+              📌 この日付に追加 {lastText.trim().length > 0 ? '✓' : ''}
             </button>
             <button 
               type="button"
@@ -729,10 +743,11 @@ function Dashboard({ user, onLogout }: any) {
     .slice(0, 5)
   , [tasks]);
 
-  function addFromText(text: string) {
-    const task = parseVoiceTextToTask(text);
+  function addFromText(text: string, targetDate: Date) {
+    const task = parseVoiceTextToTask(text, targetDate);
     console.log('📝 新しいタスク作成:', {
       text,
+      targetDate: format(targetDate, "yyyy-MM-dd", { locale: ja }),
       task,
       dateISO: task.dateISO,
       date: new Date(task.dateISO),
@@ -877,7 +892,7 @@ function Dashboard({ user, onLogout }: any) {
               </div>
 
               <div className="mt-6">
-                <VoiceCapture onText={addFromText} />
+                <VoiceCapture onText={addFromText} selectedDate={currentDate} />
               </div>
             </div>
 
