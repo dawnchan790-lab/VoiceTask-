@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { format, parseISO, startOfToday, isToday, addMinutes, isAfter, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, isSameMonth, isSameDay, eachDayOfInterval } from "date-fns";
+import { format, parseISO, startOfToday, isToday, isTomorrow, addMinutes, isAfter, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addMonths, isSameMonth, isSameDay, eachDayOfInterval } from "date-fns";
 import { ja } from "date-fns/locale";
 import * as chrono from "chrono-node";
 import { v4 as uuidv4 } from "uuid";
@@ -1303,18 +1303,70 @@ function VoiceCapture({ onText, selectedDate }: { onText: (text: string, targetD
             onChange={(e)=>setLastText(e.target.value)} 
           />
           
-          {/* 選択中の日付表示 */}
+          {/* 選択中の日付表示と変更 */}
           {lastText.trim().length > 0 && (
             <div className="bg-gradient-to-r from-fuchsia-50 via-violet-50 to-indigo-50 border-2 border-violet-300 rounded-xl p-4">
-              <div className="text-sm font-medium text-slate-700 mb-2">
+              <div className="text-sm font-medium text-slate-700 mb-3">
                 📅 登録先の日付
               </div>
-              <div className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600">
+              <div className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 mb-3">
                 {format(selectedDate, "M月d日(EEE)", { locale: ja })}
-                {isToday(selectedDate) && <span className="ml-2 text-sm">(今日)</span>}
+                {isToday(selectedDate) && <span className="ml-2 text-base">(今日)</span>}
               </div>
-              <div className="text-xs text-slate-600 mt-2">
-                💡 他の日付に登録したい場合は、上のカレンダーから日付を選択してください
+              
+              {/* 日付選択ボタン */}
+              <div className="flex gap-2 flex-wrap">
+                {/* 今日ボタン */}
+                <button
+                  type="button"
+                  onClick={() => onDateSelect(new Date())}
+                  className={classNames(
+                    "flex-1 min-w-[100px] px-3 py-2 rounded-lg font-medium transition touch-manipulation text-sm",
+                    isToday(selectedDate)
+                      ? "bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white shadow-md"
+                      : "bg-white border-2 border-violet-300 text-violet-700 hover:bg-violet-50 active:bg-violet-100"
+                  )}
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                >
+                  📍 今日
+                </button>
+                
+                {/* 明日ボタン */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    onDateSelect(tomorrow);
+                  }}
+                  className={classNames(
+                    "flex-1 min-w-[100px] px-3 py-2 rounded-lg font-medium transition touch-manipulation text-sm",
+                    isTomorrow(selectedDate)
+                      ? "bg-gradient-to-r from-fuchsia-600 to-violet-600 text-white shadow-md"
+                      : "bg-white border-2 border-violet-300 text-violet-700 hover:bg-violet-50 active:bg-violet-100"
+                  )}
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                >
+                  🔜 明日
+                </button>
+                
+                {/* 来週ボタン */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextWeek = new Date();
+                    nextWeek.setDate(nextWeek.getDate() + 7);
+                    onDateSelect(nextWeek);
+                  }}
+                  className="flex-1 min-w-[100px] px-3 py-2 rounded-lg border-2 border-violet-300 bg-white text-violet-700 font-medium hover:bg-violet-50 active:bg-violet-100 transition touch-manipulation text-sm"
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
+                >
+                  📆 来週
+                </button>
+              </div>
+              
+              <div className="text-xs text-slate-600 mt-3 bg-white/50 rounded-lg p-2">
+                💡 上のカレンダーをタップして、他の日付を選ぶこともできます
               </div>
             </div>
           )}
