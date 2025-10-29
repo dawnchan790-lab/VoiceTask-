@@ -307,16 +307,41 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
     setLastText("");
     setRecording(true);
     setIsExpanded(true);
-    recRef.current?.start();
+    try {
+      recRef.current?.start();
+    } catch (error) {
+      console.error('音声認識開始エラー:', error);
+      setRecording(false);
+    }
   };
   
-  const stop = () => recRef.current?.stop();
+  const stop = () => {
+    try {
+      recRef.current?.stop();
+      setRecording(false);
+    } catch (error) {
+      console.error('音声認識停止エラー:', error);
+      setRecording(false);
+    }
+  };
 
   return (
     <div className="bg-white/90 border-2 border-slate-200 rounded-2xl shadow-lg backdrop-blur-sm overflow-hidden">
       <div 
-        className="p-4 cursor-pointer touch-manipulation"
-        onClick={() => !recording && setIsExpanded(!isExpanded)}
+        className={classNames(
+          "p-4 touch-manipulation",
+          !recording && "cursor-pointer"
+        )}
+        onClick={(e) => {
+          if (!recording) {
+            setIsExpanded(!isExpanded);
+          }
+        }}
+        onTouchEnd={(e) => {
+          if (!recording) {
+            setIsExpanded(!isExpanded);
+          }
+        }}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -331,16 +356,44 @@ function VoiceCapture({ onText }: { onText: (text: string) => void }) {
           </div>
           {supported && !recording && (
             <button 
-              onClick={(e) => { e.stopPropagation(); start(); }} 
-              className="flex-shrink-0 w-14 h-14 rounded-full bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white shadow-lg transition-all hover:shadow-xl active:scale-90 touch-manipulation grid place-items-center"
+              type="button"
+              onClick={(e) => { 
+                e.stopPropagation();
+                e.preventDefault();
+                start(); 
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+              }}
+              onTouchEnd={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                start();
+              }}
+              className="flex-shrink-0 w-16 h-16 rounded-full bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white shadow-lg transition-all hover:shadow-xl active:scale-90 touch-manipulation grid place-items-center"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               <span className="text-2xl">🎙️</span>
             </button>
           )}
           {recording && (
             <button 
-              onClick={(e) => { e.stopPropagation(); stop(); }} 
-              className="flex-shrink-0 w-14 h-14 rounded-full bg-red-600 text-white shadow-lg transition-all active:scale-90 touch-manipulation grid place-items-center"
+              type="button"
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                stop(); 
+              }}
+              onTouchStart={(e) => {
+                e.stopPropagation();
+              }}
+              onTouchEnd={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                stop();
+              }}
+              className="flex-shrink-0 w-16 h-16 rounded-full bg-red-600 text-white shadow-lg transition-all active:scale-90 touch-manipulation grid place-items-center animate-pulse"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               <span className="text-2xl">⏹</span>
             </button>
