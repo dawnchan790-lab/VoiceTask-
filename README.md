@@ -127,7 +127,8 @@ npm test
 ✅ ブラウザ通知（10分前）  
 ✅ LocalStorageによるデータ永続化  
 ✅ アコーディオンUI（展開/折りたたみ）  
-✅ **iCalendar形式エクスポート（.ics）** 🆕  
+✅ iCalendar形式エクスポート（.ics）  
+✅ **iPhone対応音声録音ボタン（完全再設計）** 🆕  
 
 ## 📅 カレンダーアプリとの連携
 
@@ -219,6 +220,18 @@ VoiceTaskの予定を他のカレンダーアプリにエクスポートでき�
 - **ステータス**: 🟡 デプロイ準備完了（Cloudflare API Key設定後にデプロイ可能）
 - **技術スタック**: Hono + React + TypeScript + TailwindCSS
 - **最終更新**: 2025年10月29日
+
+### 最新の変更
+- **iPhone音声録音ボタンの完全再設計**（2025-10-29）
+  - `<button>`要素から`<div>`要素に変更してiOSのタッチイベント問題を回避
+  - 複雑なイベントハンドラー（onTouchStart/onTouchEnd）を削除し、シンプルなonClickに統一
+  - マイクロフォンアイコンを絵文字からSVGに変更して視覚的品質を向上
+  - ボタンサイズを80x80pxに拡大してタップしやすさを改善
+  - iOS特有の最適化を追加：
+    * `WebkitTapHighlightColor` でタップハイライトを無効化
+    * `touchAction: 'manipulation'` でダブルタップズームを防止
+    * `userSelect: 'none'` でテキスト選択を防止
+  - より魅力的なグラデーション、影、アニメーション効果を実装
 
 ## 📞 サポート
 
