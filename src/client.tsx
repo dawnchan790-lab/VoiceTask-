@@ -148,6 +148,7 @@ interface Category {
  * @property {string?} originalDate // 元の予定日（編集された場合）
  * @property {string?} category // カテゴリID
  * @property {string[]?} tags // タグのリスト
+ * @property {string?} googleCalendarEventId // Google Calendar Event ID
  */
 
 /**
@@ -1689,6 +1690,10 @@ function Dashboard({ user, onLogout }: any) {
   
   // カテゴリフィルター
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  
+  // Google Calendar連携のステート
+  const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
+  const [googleCalendarLoading, setGoogleCalendarLoading] = useState(false);
 
   // Firestore リアルタイム同期
   useEffect(() => {
@@ -1876,6 +1881,21 @@ function Dashboard({ user, onLogout }: any) {
       formatted: format(new Date(task.dateISO), "yyyy-MM-dd HH:mm", { locale: ja })
     });
 
+    // Google Calendar連携
+    if (googleCalendarEnabled) {
+      try {
+        const { googleCalendar } = await import('./lib/googleCalendar');
+        const result = await googleCalendar.createEvent(task);
+        if (result.success && result.eventId) {
+          task.googleCalendarEventId = result.eventId;
+          console.log('✅ Google Calendarにイベント追加:', result.eventId);
+        }
+      } catch (error) {
+        console.error('❌ Google Calendar連携エラー:', error);
+        // エラーがあってもタスク作成は続行
+      }
+    }
+
     // Firestore対応チェック
     if (user.uid) {
       try {
@@ -1971,6 +1991,18 @@ function Dashboard({ user, onLogout }: any) {
     const task = tasks.find((t: any) => t.id === id);
     if (!task) return;
 
+    // Google Calendar連携
+    if (googleCalendarEnabled && task.googleCalendarEventId) {
+      try {
+        const { googleCalendar } = await import('./lib/googleCalendar');
+        const updatedTask = { ...task, ...updates };
+        await googleCalendar.updateEvent(task.googleCalendarEventId, updatedTask);
+        console.log('✅ Google Calendarイベント更新:', task.googleCalendarEventId);
+      } catch (error) {
+        console.error('❌ Google Calendar更新エラー:', error);
+      }
+    }
+
     if (user.uid) {
       try {
         const { firebaseDb } = await import('./lib/firebase');
@@ -1999,7 +2031,19 @@ function Dashboard({ user, onLogout }: any) {
   }
   
   async function remove(id: string) {
+    const task = tasks.find((t: any) => t.id === id);
     clearNotification(id);
+
+    // Google Calendar連携
+    if (googleCalendarEnabled && task?.googleCalendarEventId) {
+      try {
+        const { googleCalendar } = await import('./lib/googleCalendar');
+        await googleCalendar.deleteEvent(task.googleCalendarEventId);
+        console.log('✅ Google Calendarイベント削除:', task.googleCalendarEventId);
+      } catch (error) {
+        console.error('❌ Google Calendar削除エラー:', error);
+      }
+    }
 
     if (user.uid) {
       try {
@@ -2428,6 +2472,66 @@ function Dashboard({ user, onLogout }: any) {
                         プッシュ通知を使うには、ログインが必要です
                       </div>
                     )}
+                  </div>
+                </div>
+
+                {/* Google Calendar連携 */}
+                <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
+                  <div className="font-semibold mb-3 text-base sm:text-lg flex items-center gap-2">
+                    <span className="text-xl">📆</span>
+                    <span>Google Calendar連携</span>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">自動同期</div>
+                        <div className="text-xs text-slate-600 mt-1">
+                          {googleCalendarEnabled ? (
+                            <span className="text-emerald-600">✅ 有効</span>
+                          ) : (
+                            <span className="text-slate-500">⚪ 無効</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (googleCalendarEnabled) {
+                            // 無効化
+                            const { googleCalendar } = await import('./lib/googleCalendar');
+                            googleCalendar.revokeAccessToken();
+                            setGoogleCalendarEnabled(false);
+                          } else {
+                            // 有効化
+                            setGoogleCalendarLoading(true);
+                            try {
+                              const { googleCalendar } = await import('./lib/googleCalendar');
+                              const initResult = await googleCalendar.init();
+                              if (!initResult.success) {
+                                alert(`Google Calendar APIの初期化に失敗しました: ${initResult.error}`);
+                                return;
+                              }
+                              await googleCalendar.requestAccessToken();
+                              setGoogleCalendarEnabled(true);
+                              alert('Google Calendarとの連携が有効になりました！\nこれから作成するタスクは自動的にGoogleカレンダーに追加されます。');
+                            } catch (error: any) {
+                              console.error('Google Calendar連携エラー:', error);
+                              alert(`Google Calendarの連携に失敗しました: ${error.message || error}`);
+                            } finally {
+                              setGoogleCalendarLoading(false);
+                            }
+                          }
+                        }}
+                        disabled={googleCalendarLoading}
+                        className="ml-3 px-4 py-2 bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white text-sm font-medium rounded-lg hover:opacity-90 active:opacity-80 transition disabled:opacity-50"
+                      >
+                        {googleCalendarLoading ? '処理中...' : googleCalendarEnabled ? '無効化' : '有効化'}
+                      </button>
+                    </div>
+
+                    <div className="text-xs text-slate-600 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      💡 有効にすると、VoiceTaskで作成したタスクが自動的にGoogleカレンダーに追加されます
+                    </div>
                   </div>
                 </div>
 
