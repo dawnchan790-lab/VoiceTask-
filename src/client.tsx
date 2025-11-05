@@ -2064,56 +2064,65 @@ function Dashboard({ user, onLogout }: any) {
   // プッシュ通知のセットアップ（FCMトークン取得とFirestoreへの保存）
   async function setupPushNotifications() {
     if (!user.uid) {
-      alert('プッシュ通知を有効にするには、ログインが必要です');
+      alert('❌ プッシュ通知を有効にするには、ログインが必要です');
       return;
     }
 
     setNotificationSetupLoading(true);
 
     try {
+      console.log('🔄 プッシュ通知のセットアップを開始します...');
       const { firebaseMessaging } = await import('./lib/firebase');
       
       // VAPID Keyを取得（環境変数から）
       const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
       
+      console.log('🔍 VAPID Key チェック:', vapidKey ? '✅ 設定済み' : '❌ 未設定');
+      
       if (!vapidKey || vapidKey === 'your_vapid_key_here') {
-        alert('Firebase Cloud Messagingが設定されていません。\n\n環境変数 VITE_FIREBASE_VAPID_KEY を設定してください。');
+        alert('❌ Firebase Cloud Messagingが設定されていません\n\n環境変数 VITE_FIREBASE_VAPID_KEY を設定してください。\n\n【対処方法】\n1. Firebaseコンソールでプロジェクト設定を開く\n2. Cloud Messaging タブでVAPIキーを取得\n3. Cloudflare Pagesの環境変数に追加');
         setNotificationSetupLoading(false);
         return;
       }
 
+      console.log('🔐 通知権限をリクエスト中...');
+      
       // 通知権限をリクエストし、FCMトークンを取得
       const { token, error } = await firebaseMessaging.requestPermissionAndGetToken(vapidKey);
 
       if (error) {
         console.error('❌ FCMトークン取得エラー:', error);
-        alert('通知の設定に失敗しました: ' + error);
+        alert(`❌ 通知の設定に失敗しました\n\n${error}\n\n【よくある原因】\n• 通知権限が拒否されている\n• Service Workerの登録に失敗\n• Firebase設定が間違っている\n\n【対処方法】\n1. ブラウザの設定で通知を許可\n2. ページを再読み込み\n3. もう一度試してください`);
         setNotificationSetupLoading(false);
         return;
       }
 
       if (!token) {
-        alert('通知権限が拒否されました');
+        console.warn('⚠️ 通知権限が拒否されました');
+        alert('❌ 通知権限が拒否されました\n\n【対処方法】\n1. ブラウザのアドレスバーにある鍵アイコンをタップ\n2. 「通知」を「許可」に変更\n3. ページを再読み込み\n4. もう一度「有効化」ボタンをタップ');
         setNotificationSetupLoading(false);
         return;
       }
 
+      console.log('💾 FCMトークンをFirestoreに保存中...');
+      
       // トークンをFirestoreに保存
       const saveResult = await firebaseMessaging.saveTokenToFirestore(user.uid, token);
 
       if (saveResult.error) {
         console.error('❌ トークン保存エラー:', saveResult.error);
-        alert('通知設定の保存に失敗しました');
+        alert(`❌ 通知設定の保存に失敗しました\n\n${saveResult.error}\n\nネットワーク接続を確認して、もう一度試してください。`);
       } else {
         console.log('✅ プッシュ通知セットアップ完了');
         setFcmToken(token);
         setNotificationPermission('granted');
         setShowNotificationPrompt(false);
-        alert('✅ プッシュ通知が有効になりました！\n\nタスクの期限前に通知が届きます。');
+        alert('✅ プッシュ通知が有効になりました！\n\nタスクの期限前に通知が届きます。\n\n💡 アプリを閉じていても通知を受け取れます。');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ プッシュ通知セットアップエラー:', error);
-      alert('通知の設定中にエラーが発生しました');
+      let errorMessage = error.message || error.toString();
+      alert(`❌ 通知の設定中にエラーが発生しました\n\n${errorMessage}\n\nページを再読み込みして、もう一度試してください。`);
     } finally {
       setNotificationSetupLoading(false);
     }
@@ -2498,25 +2507,53 @@ function Dashboard({ user, onLogout }: any) {
                         onClick={async () => {
                           if (googleCalendarEnabled) {
                             // 無効化
-                            const { googleCalendar } = await import('./lib/googleCalendar');
-                            googleCalendar.revokeAccessToken();
-                            setGoogleCalendarEnabled(false);
+                            try {
+                              const { googleCalendar } = await import('./lib/googleCalendar');
+                              googleCalendar.revokeAccessToken();
+                              setGoogleCalendarEnabled(false);
+                              alert('✅ Google Calendar連携を無効化しました');
+                            } catch (error: any) {
+                              console.error('Google Calendar無効化エラー:', error);
+                              setGoogleCalendarEnabled(false);
+                            }
                           } else {
                             // 有効化
                             setGoogleCalendarLoading(true);
                             try {
+                              console.log('🔄 Google Calendar連携を開始します...');
                               const { googleCalendar } = await import('./lib/googleCalendar');
+                              
+                              // 初期化
+                              console.log('📦 Google API を初期化中...');
                               const initResult = await googleCalendar.init();
                               if (!initResult.success) {
-                                alert(`Google Calendar APIの初期化に失敗しました: ${initResult.error}`);
+                                console.error('❌ 初期化失敗:', initResult.error);
+                                alert(`❌ Google Calendar APIの初期化に失敗しました\n\n${initResult.error}\n\n【対処方法】\n1. ページを再読み込みしてください\n2. ブラウザのポップアップブロックを解除してください\n3. それでも失敗する場合は、開発者にお問い合わせください`);
                                 return;
                               }
+                              
+                              // アクセストークンをリクエスト
+                              console.log('🔐 Googleアカウントの認証を開始...');
+                              console.log('💡 ポップアップが表示されます。ブロックされている場合は許可してください');
+                              
                               await googleCalendar.requestAccessToken();
+                              
                               setGoogleCalendarEnabled(true);
-                              alert('Google Calendarとの連携が有効になりました！\nこれから作成するタスクは自動的にGoogleカレンダーに追加されます。');
+                              console.log('✅ Google Calendar連携が有効になりました');
+                              alert('✅ Google Calendarとの連携が有効になりました！\n\nこれから作成するタスクは自動的にGoogleカレンダーに追加されます。');
                             } catch (error: any) {
-                              console.error('Google Calendar連携エラー:', error);
-                              alert(`Google Calendarの連携に失敗しました: ${error.message || error}`);
+                              console.error('❌ Google Calendar連携エラー:', error);
+                              let errorMessage = '不明なエラーが発生しました';
+                              
+                              if (error.message) {
+                                errorMessage = error.message;
+                              } else if (typeof error === 'string') {
+                                errorMessage = error;
+                              } else if (error.error) {
+                                errorMessage = error.error;
+                              }
+                              
+                              alert(`❌ Google Calendarの連携に失敗しました\n\n${errorMessage}\n\n【よくある原因】\n• ポップアップがブロックされている\n• Googleアカウントでログインしていない\n• 権限の許可をキャンセルした\n\n【対処方法】\n1. ブラウザのアドレスバー右側のポップアップブロックアイコンを確認\n2. ポップアップを許可して、もう一度試してください`);
                             } finally {
                               setGoogleCalendarLoading(false);
                             }

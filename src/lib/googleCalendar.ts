@@ -47,8 +47,21 @@ export const googleCalendar = {
    */
   init: async (): Promise<{ success: boolean; error?: string }> => {
     try {
+      // 環境変数の確認
+      console.log('🔍 Google Calendar 環境変数チェック:');
+      console.log('  CLIENT_ID:', GOOGLE_CLIENT_ID ? '✅ 設定済み' : '❌ 未設定');
+      console.log('  API_KEY:', GOOGLE_API_KEY ? '✅ 設定済み' : '❌ 未設定');
+      
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_API_KEY) {
+        return { 
+          success: false, 
+          error: 'Google APIの認証情報が設定されていません。環境変数を確認してください。' 
+        };
+      }
+
       // Load gapi script
       if (!gapiInited) {
+        console.log('📦 Google API スクリプトを読み込み中...');
         await loadScript('https://apis.google.com/js/api.js');
         await new Promise((resolve) => {
           (window as any).gapi.load('client', resolve);
@@ -63,6 +76,7 @@ export const googleCalendar = {
 
       // Load gis script
       if (!gisInited) {
+        console.log('📦 Google Identity Services スクリプトを読み込み中...');
         await loadScript('https://accounts.google.com/gsi/client');
         tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_CLIENT_ID,
@@ -76,7 +90,7 @@ export const googleCalendar = {
       return { success: true };
     } catch (error: any) {
       console.error('❌ Google API initialization error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || 'Google APIの初期化に失敗しました' };
     }
   },
 
