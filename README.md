@@ -491,3 +491,4 @@ VoiceTask Development Team
 
 **Stage 1 Beta リリース完了**: 2025年（Week 11-12完了）  
 **最終更新**: 2025-10-29
+# Trigger rebuild with .env.production
