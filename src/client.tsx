@@ -134,6 +134,13 @@ interface Category {
 }
 
 /**
+ * 通知タイミング（分単位）
+ */
+type NotificationTiming = 10080 | 4320 | 1440 | 720 | 360 | 180 | 60 | 30 | 10;
+// 10080分 = 1週間前、4320分 = 3日前、1440分 = 1日前、720分 = 12時間前
+// 360分 = 6時間前、180分 = 3時間前、60分 = 1時間前、30分 = 30分前、10分 = 10分前
+
+/**
  * @typedef Task
  * @property {string} id
  * @property {string} title
@@ -143,6 +150,7 @@ interface Category {
  * @property {Priority} priority
  * @property {boolean} done
  * @property {boolean} notify
+ * @property {NotificationTiming[]} notificationTimings // 通知タイミング（分単位の配列）
  * @property {RecurrenceRule?} recurrence // 繰り返しルール（任意）
  * @property {string?} recurrenceId // 繰り返しタスクのグループID
  * @property {string?} originalDate // 元の予定日（編集された場合）
@@ -150,6 +158,21 @@ interface Category {
  * @property {string[]?} tags // タグのリスト
  * @property {string?} googleCalendarEventId // Google Calendar Event ID
  */
+
+/**
+ * 通知タイミングの選択肢
+ */
+const notificationTimingOptions: { value: NotificationTiming; label: string }[] = [
+  { value: 10080, label: '1週間前' },
+  { value: 4320, label: '3日前' },
+  { value: 1440, label: '1日前' },
+  { value: 720, label: '12時間前' },
+  { value: 360, label: '6時間前' },
+  { value: 180, label: '3時間前' },
+  { value: 60, label: '1時間前' },
+  { value: 30, label: '30分前' },
+  { value: 10, label: '10分前' },
+];
 
 /**
  * デフォルトカテゴリ
@@ -413,6 +436,7 @@ function parseVoiceTextToTask(text: string, targetDate: Date) {
     priority,
     done: false,
     notify: priority === "high", // high -> notify by default
+    notificationTimings: [10] as NotificationTiming[], // デフォルト: 10分前
   };
 
   // 繰り返しルールがある場合は追加
@@ -1523,8 +1547,51 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify, onUpdate }: any) {
               <span className="text-sm font-medium">通知を有効にする</span>
             </label>
             {task.notify && (
-              <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-2">
-                💡 タスク開始時刻の10分前に通知されます
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-slate-700">通知タイミング</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {notificationTimingOptions.map(option => {
+                    const isSelected = task.notificationTimings?.includes(option.value);
+                    return (
+                      <button
+                        key={option.value}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const currentTimings = task.notificationTimings || [10];
+                          const newTimings = isSelected
+                            ? currentTimings.filter((t: NotificationTiming) => t !== option.value)
+                            : [...currentTimings, option.value].sort((a, b) => b - a);
+                          
+                          // 最低1つは選択されている必要がある
+                          if (newTimings.length > 0) {
+                            onUpdate(task.id, { notificationTimings: newTimings });
+                          }
+                        }}
+                        className={classNames(
+                          "px-3 py-2 text-xs rounded-lg border-2 font-medium transition touch-manipulation",
+                          isSelected
+                            ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white border-transparent"
+                            : "bg-white border-slate-300 text-slate-700 hover:border-violet-400 active:bg-slate-50"
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-2">
+                  💡 選択したタイミングすべてで通知されます
+                  {task.notificationTimings && task.notificationTimings.length > 0 && (
+                    <div className="mt-1 font-medium text-blue-700">
+                      {task.notificationTimings
+                        .sort((a: number, b: number) => b - a)
+                        .map((t: NotificationTiming) => 
+                          notificationTimingOptions.find(opt => opt.value === t)?.label
+                        )
+                        .join(', ')}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

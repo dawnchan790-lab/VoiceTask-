@@ -186,8 +186,17 @@ export const googleCalendar = {
         },
       };
 
-      // Add reminder if notification is enabled
-      if (task.notify) {
+      // Add reminders if notification is enabled
+      if (task.notify && task.notificationTimings && task.notificationTimings.length > 0) {
+        event.reminders = {
+          useDefault: false,
+          overrides: task.notificationTimings.map((minutes: number) => ({
+            method: 'popup',
+            minutes: minutes
+          })),
+        };
+      } else if (task.notify) {
+        // Fallback to 10 minutes if notificationTimings is not set
         event.reminders = {
           useDefault: false,
           overrides: [{ method: 'popup', minutes: 10 }],
@@ -235,7 +244,16 @@ export const googleCalendar = {
         },
       };
 
-      if (task.notify) {
+      if (task.notify && task.notificationTimings && task.notificationTimings.length > 0) {
+        event.reminders = {
+          useDefault: false,
+          overrides: task.notificationTimings.map((minutes: number) => ({
+            method: 'popup',
+            minutes: minutes
+          })),
+        };
+      } else if (task.notify) {
+        // Fallback to 10 minutes if notificationTimings is not set
         event.reminders = {
           useDefault: false,
           overrides: [{ method: 'popup', minutes: 10 }],
