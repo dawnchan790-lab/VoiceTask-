@@ -18,7 +18,7 @@ node_modules/
 # env
 .env
 .env.local
-.env.production
+# .env.production  # Allow production env file for Vite build-time injection
 .dev.vars
 
 # logs
