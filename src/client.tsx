@@ -1477,31 +1477,16 @@ function TaskItem({ task, onToggle, onDelete, onToggleNotify, onUpdate }: any) {
               )}
             </div>
             
-            {/* カテゴリとタグ */}
-            <div className="text-xs flex flex-wrap items-center gap-2">
-              {task.category && (() => {
-                const cat = defaultCategories.find(c => c.id === task.category);
-                if (!cat) return null;
-                return (
-                  <span className={classNames(
-                    "px-2 py-0.5 rounded-full font-medium",
-                    cat.color === 'blue' && "bg-blue-100 text-blue-700",
-                    cat.color === 'violet' && "bg-violet-100 text-violet-700",
-                    cat.color === 'green' && "bg-green-100 text-green-700",
-                    cat.color === 'yellow' && "bg-yellow-100 text-yellow-700",
-                    cat.color === 'red' && "bg-red-100 text-red-700",
-                    cat.color === 'pink' && "bg-pink-100 text-pink-700"
-                  )}>
-                    {cat.icon} {cat.name}
+            {/* タグ表示 */}
+            {task.tags && task.tags.length > 0 && (
+              <div className="text-xs flex flex-wrap items-center gap-2">
+                {task.tags.map((tag: string) => (
+                  <span key={tag} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+                    #{tag}
                   </span>
-                );
-              })()}
-              {task.tags && task.tags.map((tag: string) => (
-                <span key={tag} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
-                  #{tag}
-                </span>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
           
           <button 
@@ -1687,9 +1672,6 @@ function Dashboard({ user, onLogout }: any) {
   const [fcmToken, setFcmToken] = useState<string | null>(null);
   const [notificationSetupLoading, setNotificationSetupLoading] = useState(false);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
-  
-  // カテゴリフィルター
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   
   // Google Calendar連携のステート
   const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
@@ -2168,13 +2150,8 @@ function Dashboard({ user, onLogout }: any) {
       ? todays 
       : expandedTasks.filter((t: any) => format(parseISO(t.dateISO), "yyyy-MM-dd") === format(currentDate, "yyyy-MM-dd"));
     
-    // カテゴリフィルター適用
-    if (categoryFilter) {
-      filtered = filtered.filter((t: any) => t.category === categoryFilter);
-    }
-    
     return filtered;
-  }, [filterTodayOnly, todays, expandedTasks, currentDate, categoryFilter]);
+  }, [filterTodayOnly, todays, expandedTasks, currentDate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-fuchsia-50 to-cyan-50 pb-safe">
@@ -2447,54 +2424,6 @@ function Dashboard({ user, onLogout }: any) {
                   </div>
                 </div>
 
-                {/* カテゴリフィルター */}
-                <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
-                  <div className="font-semibold mb-3 text-base sm:text-lg flex items-center gap-2">
-                    <span className="text-xl">🏷️</span>
-                    <span>カテゴリ</span>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => setCategoryFilter(null)}
-                      className={classNames(
-                        "w-full p-3 rounded-lg text-left transition touch-manipulation",
-                        !categoryFilter 
-                          ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white" 
-                          : "bg-slate-50 hover:bg-slate-100 active:bg-slate-200"
-                      )}
-                    >
-                      <div className="font-medium text-sm">すべて</div>
-                      <div className="text-xs mt-0.5 opacity-80">
-                        {expandedTasks.length}件
-                      </div>
-                    </button>
-                    
-                    {defaultCategories.map(cat => {
-                      const count = expandedTasks.filter((t: any) => t.category === cat.id).length;
-                      return (
-                        <button
-                          key={cat.id}
-                          onClick={() => setCategoryFilter(cat.id)}
-                          className={classNames(
-                            "w-full p-3 rounded-lg text-left transition touch-manipulation",
-                            categoryFilter === cat.id
-                              ? "bg-gradient-to-r from-fuchsia-600 via-violet-600 to-indigo-600 text-white"
-                              : "bg-slate-50 hover:bg-slate-100 active:bg-slate-200"
-                          )}
-                        >
-                          <div className="font-medium text-sm">
-                            {cat.icon} {cat.name}
-                          </div>
-                          <div className="text-xs mt-0.5 opacity-80">
-                            {count}件
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
                 {/* 通知設定 */}
                 <div className="border-2 border-slate-200 rounded-2xl p-4 bg-white shadow-lg">
                   <div className="font-semibold mb-3 text-base sm:text-lg flex items-center gap-2">
@@ -2645,10 +2574,6 @@ function Dashboard({ user, onLogout }: any) {
                     <li className="flex gap-2">
                       <span className="flex-shrink-0">•</span>
                       <span>「明日10時 重要 顧客に電話 30分」のように話すと自動解析します</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="flex-shrink-0">•</span>
-                      <span>「仕事」「個人」「健康」などのカテゴリ名を含めると自動分類されます</span>
                     </li>
                     <li className="flex gap-2">
                       <span className="flex-shrink-0">•</span>
