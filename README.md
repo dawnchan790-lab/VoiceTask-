@@ -17,20 +17,24 @@ Firebase統合により、複数デバイス間でリアルタイム同期・プ
 - **繰り返しタスク**: 日次・週次・月次の自動繰り返しに対応
 - **カテゴリ・タグ**: 色分け・絵文字アイコンによる視覚的なタスク管理
 - **日本の祝日**: 2024-2026年の祝日カレンダー表示
+- **Google Calendar連携**: タスクを自動的にGoogleカレンダーに同期 ✅
 - **レスポンシブデザイン**: iPhone、iPad、Android、デスクトップすべてで快適に動作
 - **PWA対応**: ホーム画面に追加してアプリのように使用可能
 
 ## 🌐 公開URL
 
-### サンドボックス環境（開発用）
-- **URL**: https://3000-iaucei33hu14f8a45otlh-3844e1b6.sandbox.novita.ai
-- **用途**: 開発・テスト環境
-- **有効期限**: セッション終了まで
-
 ### Cloudflare Pages（本番環境）
-- **デプロイ方法**: `npm run deploy:prod`
+- **本番URL**: https://voicetask.pages.dev ✅
+- **GitHub**: https://github.com/dawnchan790-lab/VoiceTask-
 - **プロジェクト名**: voicetask
-- **本番URL**: デプロイ後に表示されます
+- **デプロイ方法**: GitHubへのpush時に自動デプロイ
+
+### 機能ステータス
+- ✅ **Firebase Authentication**: 動作中
+- ✅ **Firestore Database**: 動作中
+- ✅ **Firebase Cloud Messaging**: 動作中（ログインユーザーのみ）
+- ✅ **Google Calendar API**: OAuth認証完了・動作中
+- ✅ **音声入力**: Web Speech API（Chrome/Safari対応）
 
 ## ✅ Stage 1 Beta 実装完了機能
 
@@ -81,6 +85,7 @@ Firebase統合により、複数デバイス間でリアルタイム同期・プ
 - **エラーハンドリング検証**: 音声認識の包括的なエラー処理確認
 - **README更新**: 全実装機能を反映した詳細ドキュメント作成
 - **型定義の完全性**: RecurrenceRule, Category, Task型の完全なドキュメント化
+- **Google Calendar連携**: OAuth 2.0認証によるGoogleカレンダー自動同期機能を実装 ✅
 
 ## 🎯 音声入力の使い方
 
@@ -257,24 +262,64 @@ cd webapp
 npm install
 ```
 
-### 3. Firebase設定
+### 3. Google Calendar API の設定
 
-#### 3.1 Firebaseプロジェクトの作成
+#### 3.1 Google Cloud Console でプロジェクト作成
+1. [Google Cloud Console](https://console.cloud.google.com/) にアクセス
+2. プロジェクトを作成または既存プロジェクトを選択
+
+#### 3.2 Google Calendar API を有効化
+1. 「APIとサービス」→「ライブラリ」
+2. 「Google Calendar API」を検索
+3. 「有効にする」をクリック
+
+#### 3.3 OAuth 2.0 認証情報を作成
+1. 「APIとサービス」→「認証情報」
+2. 「認証情報を作成」→「OAuth クライアント ID」
+3. アプリケーションの種類: **ウェブ アプリケーション**
+4. **承認済みの JavaScript 生成元**:
+   ```
+   https://voicetask.pages.dev
+   ```
+5. **承認済みのリダイレクト URI**:
+   ```
+   https://voicetask.pages.dev
+   https://voicetask.pages.dev/
+   ```
+6. 作成後、**クライアントID** と **APIキー** をコピー
+
+#### 3.4 OAuth 同意画面の設定
+1. 「APIとサービス」→「OAuth 同意画面」
+2. ユーザータイプ: **外部**
+3. アプリ名、サポートメール、デベロッパーの連絡先情報を入力
+4. **テストユーザー**セクションで、使用するGoogleアカウントのメールアドレスを追加
+5. 保存して次へ
+
+#### 3.5 環境変数に追加
+`.env.production`ファイルに以下を追加:
+```bash
+VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+VITE_GOOGLE_API_KEY=your_api_key
+```
+
+### 4. Firebase設定
+
+#### 4.1 Firebaseプロジェクトの作成
 1. [Firebase Console](https://console.firebase.google.com/) にアクセス
 2. 「プロジェクトを追加」から新規プロジェクト作成
 3. プロジェクト設定 > 全般 から「ウェブアプリを追加」
 
-#### 3.2 Authentication の有効化
+#### 4.2 Authentication の有効化
 1. Firebase Console > Authentication > Sign-in method
 2. 「Google」を有効化
 3. 「メール/パスワード」を有効化
 
-#### 3.3 Firestore Database の作成
+#### 4.3 Firestore Database の作成
 1. Firebase Console > Firestore Database > データベースの作成
 2. 本番環境モードで開始（セキュリティルールは後で設定）
 3. ロケーション: `asia-northeast1` (東京) を推奨
 
-#### 3.4 Firestore セキュリティルール
+#### 4.4 Firestore セキュリティルール
 ```javascript
 rules_version = '2';
 service cloud.firestore {
@@ -287,24 +332,29 @@ service cloud.firestore {
 }
 ```
 
-#### 3.5 Cloud Messaging (FCM) の設定
+#### 4.5 Cloud Messaging (FCM) の設定
 1. Firebase Console > プロジェクトの設定 > Cloud Messaging
 2. 「ウェブプッシュ証明書」タブで「鍵ペアを生成」
 3. VAPID公開鍵をコピー
 
-#### 3.6 環境変数の設定
-`.env`ファイルを作成（`.env.example`を参考）:
+#### 4.6 環境変数の設定
+`.env.production`ファイルを作成:
 ```bash
+# Google Calendar API
+VITE_GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+VITE_GOOGLE_API_KEY=your_api_key
+
+# Firebase Configuration
 VITE_FIREBASE_API_KEY=your_api_key_here
 VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=your_project_id
 VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
 VITE_FIREBASE_APP_ID=your_app_id
-VITE_FIREBASE_VAPID_KEY=your_vapid_key_here
+VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
 ```
 
-### 4. ビルドと起動
+### 5. ビルドと起動
 
 #### ローカル開発（Viteデブサーバー）
 ```bash
@@ -408,6 +458,29 @@ npx wrangler pages domain add example.com --project-name voicetask
 1. Chrome/Edgeで VoiceTask を開く
 2. アドレスバー右側の「+」アイコンをクリック
 3. 「インストール」をクリック
+
+## 📆 Google Calendar連携の使い方
+
+### 初回設定
+1. **ログイン**: VoiceTaskにログイン
+2. **設定画面を開く**: 右上の設定アイコンをタップ
+3. **Google Calendar連携セクション**: 「自動同期」ボタンをタップ
+4. **OAuth認証**: Googleアカウントでログインして権限を許可
+5. **連携完了**: 「✅ Google Calendarとの連携が有効になりました！」メッセージが表示される
+
+### 自動同期機能
+- **タスク作成時**: VoiceTaskで作成したタスクが自動的にGoogleカレンダーに追加される
+- **タスク編集時**: タスクの内容を変更すると、Googleカレンダーのイベントも自動更新
+- **タスク削除時**: タスクを削除すると、Googleカレンダーのイベントも削除される
+
+### トラブルシューティング
+**「処理中」のまま動かない場合:**
+- ブラウザのポップアップブロックを解除してください
+- Chrome: アドレスバー右側のポップアップブロックアイコンを確認
+- Safari: 設定 > Safari > ポップアップブロック をオフ
+
+**「アクセスをブロック」エラーが出る場合:**
+- Google Cloud ConsoleのOAuth同意画面で、使用するGoogleアカウントを「テストユーザー」に追加してください
 
 ## 🔔 プッシュ通知の設定
 
