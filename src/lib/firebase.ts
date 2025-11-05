@@ -28,7 +28,10 @@ import {
   deleteDoc,
   updateDoc,
   Timestamp,
-  enableIndexedDbPersistence
+  enableIndexedDbPersistence,
+  onSnapshotsInSync,
+  enableNetwork,
+  disableNetwork
 } from 'firebase/firestore';
 import { 
   getMessaging, 
@@ -168,6 +171,66 @@ export const firebaseAuth = {
 
 // Firestore Database Functions
 export const firebaseDb = {
+  // Connection monitoring
+  connection: {
+    // Listen to sync status
+    onSyncStatusChange: (callback: (isSynced: boolean) => void) => {
+      let lastSyncTime = Date.now();
+      let isSynced = true;
+      
+      // Monitor when all snapshots are in sync
+      const unsubscribe = onSnapshotsInSync(db, () => {
+        lastSyncTime = Date.now();
+        if (!isSynced) {
+          console.log('🔄 Firestore: データ同期完了');
+          isSynced = true;
+          callback(true);
+        }
+      });
+      
+      // Check sync status periodically
+      const intervalId = setInterval(() => {
+        const timeSinceLastSync = Date.now() - lastSyncTime;
+        // If no sync for more than 10 seconds, consider it offline
+        if (timeSinceLastSync > 10000 && isSynced) {
+          console.log('⚠️ Firestore: 接続が切断された可能性があります');
+          isSynced = false;
+          callback(false);
+        }
+      }, 5000);
+      
+      // Return cleanup function
+      return () => {
+        unsubscribe();
+        clearInterval(intervalId);
+      };
+    },
+    
+    // Enable network (reconnect)
+    enableNetwork: async () => {
+      try {
+        await enableNetwork(db);
+        console.log('🌐 Firestore: ネットワーク接続を有効化');
+        return { error: null };
+      } catch (error: any) {
+        console.error('❌ Enable network error:', error);
+        return { error: error.message };
+      }
+    },
+    
+    // Disable network (go offline)
+    disableNetwork: async () => {
+      try {
+        await disableNetwork(db);
+        console.log('📴 Firestore: オフラインモードに切り替え');
+        return { error: null };
+      } catch (error: any) {
+        console.error('❌ Disable network error:', error);
+        return { error: error.message };
+      }
+    }
+  },
+  
   // Tasks collection
   tasks: {
     // Get all tasks for a user

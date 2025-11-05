@@ -1694,6 +1694,10 @@ function Dashboard({ user, onLogout }: any) {
   // Google Calendar連携のステート
   const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
   const [googleCalendarLoading, setGoogleCalendarLoading] = useState(false);
+  
+  // 同期ステータスのステート
+  const [isSynced, setIsSynced] = useState(true);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   // Firestore リアルタイム同期
   useEffect(() => {
@@ -1757,6 +1761,37 @@ function Dashboard({ user, onLogout }: any) {
       }
     };
   }, [user.uid, user.email]);
+  
+  // 同期ステータスの監視
+  useEffect(() => {
+    let unsubscribeSyncStatus: (() => void) | undefined;
+    
+    const setupSyncMonitoring = async () => {
+      if (!user.uid) return;
+      
+      try {
+        const { firebaseDb } = await import('./lib/firebase');
+        
+        // 同期ステータスの監視を開始
+        unsubscribeSyncStatus = firebaseDb.connection.onSyncStatusChange((synced) => {
+          setIsSynced(synced);
+          if (synced) {
+            setLastSyncTime(new Date());
+          }
+        });
+      } catch (error) {
+        console.error('❌ 同期ステータス監視エラー:', error);
+      }
+    };
+    
+    setupSyncMonitoring();
+    
+    return () => {
+      if (unsubscribeSyncStatus) {
+        unsubscribeSyncStatus();
+      }
+    };
+  }, [user.uid]);
 
   // LocalStorageへの保存（Firestore非対応時のフォールバック）
   useEffect(() => {
@@ -2168,6 +2203,28 @@ function Dashboard({ user, onLogout }: any) {
             </div>
             
             <div className="flex items-center gap-2">
+              {/* 同期ステータスインジケーター */}
+              {user.uid && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/50 backdrop-blur-sm border border-slate-200">
+                  {isSynced ? (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-xs text-slate-600 hidden sm:inline">同期済み</span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-amber-500" />
+                      <span className="text-xs text-slate-600 hidden sm:inline">同期中...</span>
+                    </>
+                  )}
+                  {lastSyncTime && (
+                    <span className="text-xs text-slate-400 hidden md:inline">
+                      {format(lastSyncTime, 'HH:mm')}
+                    </span>
+                  )}
+                </div>
+              )}
+              
               {/* Export to Calendar button */}
               <button 
                 onClick={() => {
