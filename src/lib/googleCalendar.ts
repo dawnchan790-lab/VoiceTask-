@@ -100,15 +100,25 @@ export const googleCalendar = {
   requestAccessToken: (): Promise<string> => {
     return new Promise((resolve, reject) => {
       try {
+        // タイムアウト設定（30秒）
+        const timeout = setTimeout(() => {
+          reject(new Error('OAuth認証がタイムアウトしました。ポップアップがブロックされている可能性があります。'));
+        }, 30000);
+
         tokenClient.callback = (response: GoogleAuthResponse) => {
+          clearTimeout(timeout);
           if (response.error) {
-            reject(response);
+            console.error('❌ OAuth error:', response);
+            reject(new Error(response.error || 'OAuth認証に失敗しました'));
             return;
           }
           console.log('✅ Access token received');
           resolve(response.access_token);
         };
 
+        console.log('🔐 OAuth認証ウィンドウを開きます...');
+        console.log('⚠️ ポップアップブロッカーが有効な場合は、許可してください');
+        
         if ((window as any).gapi.client.getToken() === null) {
           // Prompt user to consent
           tokenClient.requestAccessToken({ prompt: 'consent' });

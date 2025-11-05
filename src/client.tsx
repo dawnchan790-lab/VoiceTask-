@@ -2543,6 +2543,8 @@ function Dashboard({ user, onLogout }: any) {
                               alert('✅ Google Calendarとの連携が有効になりました！\n\nこれから作成するタスクは自動的にGoogleカレンダーに追加されます。');
                             } catch (error: any) {
                               console.error('❌ Google Calendar連携エラー:', error);
+                              console.error('❌ エラーの詳細:', JSON.stringify(error, null, 2));
+                              
                               let errorMessage = '不明なエラーが発生しました';
                               
                               if (error.message) {
@@ -2553,7 +2555,12 @@ function Dashboard({ user, onLogout }: any) {
                                 errorMessage = error.error;
                               }
                               
-                              alert(`❌ Google Calendarの連携に失敗しました\n\n${errorMessage}\n\n【よくある原因】\n• ポップアップがブロックされている\n• Googleアカウントでログインしていない\n• 権限の許可をキャンセルした\n\n【対処方法】\n1. ブラウザのアドレスバー右側のポップアップブロックアイコンを確認\n2. ポップアップを許可して、もう一度試してください`);
+                              // タイムアウトエラーの場合
+                              if (errorMessage.includes('タイムアウト')) {
+                                alert(`❌ 認証がタイムアウトしました\n\n【原因】\nポップアップがブロックされているか、認証ウィンドウが開かなかった可能性があります。\n\n【対処方法】\n1. ブラウザのアドレスバー右側のポップアップブロックアイコンを確認\n2. ポップアップを許可に設定\n3. もう一度「自動同期」ボタンをタップ\n\nスマホの場合:\n• Chromeの場合: 設定 > サイトの設定 > ポップアップとリダイレクト\n• Safariの場合: 設定 > Safari > ポップアップブロック`);
+                              } else {
+                                alert(`❌ Google Calendarの連携に失敗しました\n\n${errorMessage}\n\n【よくある原因】\n• ポップアップがブロックされている\n• Googleアカウントでログインしていない\n• 権限の許可をキャンセルした\n\n【対処方法】\n1. ブラウザのアドレスバー右側のポップアップブロックアイコンを確認\n2. ポップアップを許可して、もう一度試してください`);
+                              }
                             } finally {
                               setGoogleCalendarLoading(false);
                             }
